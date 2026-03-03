@@ -1,0 +1,16 @@
+[package]
+name = "beancount-parser-lima-plugin"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "parser-lima"
+path = "src/main.rs"
+
+[dependencies]
+beancount-parser-lima = "0.14"
+prost = "0.13"
+prost-types = "0.13"
+
+[build-dependencies]
+prost-build = "0.13"

@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+import "common.proto";
+import "directives.proto";
+
+package beancount;
+
+// Plugin initialization request from orchestrator
+message InitRequest {
+  string plugin_name = 1;
+  string pipeline_stage = 2;  // "parser", "plugin", "validator"
+  map<string, string> options = 3;
+}
+
+// Plugin initialization response
+message InitResponse {
+  bool success = 1;
+  string error_message = 2;
+  string plugin_version = 3;
+  map<string, string> capabilities = 4;
+}
+
+// Process batch of directives request
+message ProcessRequest {
+  repeated Directive directives = 1;
+  map<string, string> options_map = 2;
+  string input_file = 3;  // Original input file path
+}
+
+// Process batch response
+message ProcessResponse {
+  repeated Directive directives = 1;  // Modified/added/removed directives
+  repeated Error errors = 2;
+  map<string, string> updated_options = 3;
+}
+
+// Shutdown request
+message ShutdownRequest {
+  string reason = 1;
+}
+
+// Shutdown response
+message ShutdownResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Wrapper for any plugin message (for protocol versioning)
+message PluginMessage {
+  string protocol_version = 1;  // e.g., "1.0.0"
+
+  oneof message_type {
+    InitRequest init_request = 2;
+    InitResponse init_response = 3;
+    ProcessRequest process_request = 4;
+    ProcessResponse process_response = 5;
+    ShutdownRequest shutdown_request = 6;
+    ShutdownResponse shutdown_response = 7;
+  }
+}

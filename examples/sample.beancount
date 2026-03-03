@@ -1,0 +1,59 @@
+; Sample Beancount File for Testing Pipeline
+; This file demonstrates various directive types
+
+option "title" "Sample Accounting File"
+option "operating_currency" "USD"
+
+; Open accounts
+2024-01-01 open Assets:Checking USD
+2024-01-01 open Assets:Savings USD
+2024-01-01 open Income:Salary USD
+2024-01-01 open Expenses:Groceries USD
+2024-01-01 open Expenses:Rent USD
+2024-01-01 open Equity:Opening-Balances USD
+
+; Initial balance
+2024-01-01 * "Opening Balance"
+  Assets:Checking           1000.00 USD
+  Equity:Opening-Balances
+
+; Salary transaction
+2024-01-05 * "Acme Corp" "January Salary"
+  Assets:Checking           3000.00 USD
+  Income:Salary
+
+; Rent payment
+2024-01-10 * "Landlord" "January Rent"
+  Expenses:Rent             1200.00 USD
+  Assets:Checking
+
+; Groceries
+2024-01-15 * "Supermarket" "Weekly groceries" #food
+  Expenses:Groceries         150.00 USD
+  Assets:Checking
+
+; Balance assertion (should match after above transactions)
+2024-01-20 balance Assets:Checking  2650.00 USD
+
+; Transfer to savings
+2024-01-25 * "Transfer to savings"
+  Assets:Savings             500.00 USD
+  Assets:Checking
+
+; More groceries
+2024-01-28 * "Supermarket" "More groceries" #food
+  Expenses:Groceries          85.00 USD
+  Assets:Checking
+
+; Balance assertion at end of month
+2024-01-31 balance Assets:Checking  2065.00 USD
+2024-01-31 balance Assets:Savings    500.00 USD
+
+; February transactions
+2024-02-05 * "Acme Corp" "February Salary"
+  Assets:Checking           3000.00 USD
+  Income:Salary
+
+; Close the year by closing accounts (example)
+; 2024-12-31 close Assets:Checking
+; 2024-12-31 close Assets:Savings

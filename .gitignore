@@ -1,0 +1,42 @@
+# Zig build artifacts
+zig-cache/
+zig-out/
+*.o
+*.a
+beancount-runner
+
+# Generated protobuf code
+generated/
+
+# Rust build artifacts
+target/
+Cargo.lock
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Nix
+result
+result-*
+
+# Output files
+output.json
+*.beancount.processed
+
+# OS
+.DS_Store
+Thumbs.db
+/.direnv

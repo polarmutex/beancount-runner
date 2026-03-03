@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package beancount;
+
+// Represents a calendar date
+message Date {
+  int32 year = 1;
+  int32 month = 2;
+  int32 day = 3;
+}
+
+// Represents a monetary amount with currency
+message Amount {
+  string number = 1;  // Decimal as string to preserve precision
+  string currency = 2;
+}
+
+// Represents a position (amount with optional cost)
+message Position {
+  Amount amount = 1;
+  optional Amount cost = 2;  // For cost basis
+}
+
+// Metadata attached to directives
+message Metadata {
+  map<string, MetadataValue> entries = 1;
+}
+
+// Polymorphic metadata value
+message MetadataValue {
+  oneof value {
+    string string_value = 1;
+    double number_value = 2;
+    bool bool_value = 3;
+    Date date_value = 4;
+    Amount amount_value = 5;
+  }
+}
+
+// Error reported by parser, plugin, or validator
+message Error {
+  string message = 1;
+  string source = 2;       // Plugin/component that generated error
+  optional Location location = 3;
+}
+
+// Source location for error reporting
+message Location {
+  string filename = 1;
+  int32 line = 2;
+  int32 column = 3;
+}

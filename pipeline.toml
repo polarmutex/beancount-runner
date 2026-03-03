@@ -1,0 +1,93 @@
+# Beancount Runner Pipeline Configuration
+
+[pipeline]
+# Input file (can be overridden via CLI: --input <file>)
+input = "examples/sample.beancount"
+
+# Output format: json | protobuf | text
+output_format = "json"
+output_path = "output.json"
+
+# Enable verbose logging
+verbose = false
+
+# ============================================================================
+# Pipeline Stages (executed in order)
+# ============================================================================
+
+# Stage 1: Parser - Convert .beancount file to directive stream
+[[pipeline.stages]]
+name = "parser"
+type = "external"
+executable = "./plugins/parser-lima/target/release/parser-lima"
+language = "rust"
+description = "Parse beancount file using lima parser"
+
+# Stage 2: Auto-balance plugin - Generate Pad directives
+[[pipeline.stages]]
+name = "auto-balance"
+type = "external"
+executable = "python"
+args = ["./plugins/auto-balance/auto_balance.py"]
+language = "python"
+description = "Automatically generate padding entries for balance assertions"
+
+# Additional plugin example (commented out):
+# [[pipeline.stages]]
+# name = "custom-plugin"
+# type = "external"
+# executable = "./plugins/my-plugin/my-plugin"
+# language = "zig"
+# description = "My custom processing logic"
+
+# Stage 3: Validator - Final validation and error checking
+[[pipeline.stages]]
+name = "validator"
+type = "builtin"
+function = "validate_all"
+description = "Validate transactions balance, account usage, and date ordering"
+
+# ============================================================================
+# Beancount Options (passed to all plugins)
+# ============================================================================
+
+[options]
+# Operating currency for reports
+operating_currency = "USD"
+
+# Default tolerance for balance checks (as decimal string)
+tolerance_default = "0.005"
+
+# Inferred tolerance multiplier
+inferred_tolerance_multiplier = "0.5"
+
+# Default commodities for auto-pad
+commodities = ["USD", "EUR", "GBP"]
+
+# Account name validation regex
+account_pattern = "[A-Z][A-Za-z0-9\\-]+(:[A-Z][A-Za-z0-9\\-]+)+"
+
+# ============================================================================
+# Validator Configuration
+# ============================================================================
+
+[validator]
+# Enable/disable specific validations
+check_transaction_balance = true
+check_account_open = true
+check_balance_assertions = true
+check_date_ordering = true
+
+# Tolerance for balance checking
+tolerance = 0.005
+
+# ============================================================================
+# Plugin-Specific Configuration
+# ============================================================================
+
+[plugin.auto_balance]
+# Account to use for padding entries
+pad_account = "Equity:Opening-Balances"
+
+# Automatically create Open directives for pad account
+auto_open_pad_account = true
