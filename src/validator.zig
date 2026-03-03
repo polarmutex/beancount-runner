@@ -96,13 +96,86 @@ pub const Validator = struct {
         directives: []const Directive,
         errors: *std.ArrayList(Error),
     ) !void {
-        _ = self;
-        _ = directives;
-        _ = errors;
-        // TODO: Implement account usage validation
-        // - Track Open directives and their dates
-        // - For each account usage, verify it was opened
-        // - Verify usage date >= open date
+        // Track opened accounts with their dates
+        var open_accounts = std.StringHashMap(Date).init(self.allocator);
+        defer {
+            var iter = open_accounts.keyIterator();
+            while (iter.next()) |key| {
+                self.allocator.free(key.*);
+            }
+            open_accounts.deinit();
+        }
+
+        for (directives) |directive| {
+            // Record Open directives
+            if (directive.hasOpen()) {
+                const open = directive.getOpen();
+                try open_accounts.put(
+                    try self.allocator.dupe(u8, open.account),
+                    open.date,
+                );
+            }
+
+            // Check Transaction postings
+            if (directive.hasTransaction()) {
+                const txn = directive.getTransaction();
+
+                for (txn.postings) |posting| {
+                    if (!open_accounts.contains(posting.account)) {
+                        try errors.append(self.allocator, Error{
+                            .message = try std.fmt.allocPrint(
+                                self.allocator,
+                                "Account '{s}' used before being opened",
+                                .{posting.account},
+                            ),
+                            .source = try self.allocator.dupe(u8, "validator"),
+                        });
+                    } else {
+                        // Verify transaction date >= open date
+                        const open_date = open_accounts.get(posting.account).?;
+                        if (compareDates(txn.date, open_date) < 0) {
+                            try errors.append(self.allocator, Error{
+                                .message = try std.fmt.allocPrint(
+                                    self.allocator,
+                                    "Account '{s}' used on {d}-{d:0>2}-{d:0>2} before open date {d}-{d:0>2}-{d:0>2}",
+                                    .{
+                                        posting.account,
+                                        txn.date.year,
+                                        txn.date.month,
+                                        txn.date.day,
+                                        open_date.year,
+                                        open_date.month,
+                                        open_date.day,
+                                    },
+                                ),
+                                .source = try self.allocator.dupe(u8, "validator"),
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Also check Balance directives
+            if (directive.hasBalance()) {
+                const bal = directive.getBalance();
+                if (!open_accounts.contains(bal.account)) {
+                    try errors.append(self.allocator, Error{
+                        .message = try std.fmt.allocPrint(
+                            self.allocator,
+                            "Balance assertion for unopened account '{s}'",
+                            .{bal.account},
+                        ),
+                        .source = try self.allocator.dupe(u8, "validator"),
+                    });
+                }
+            }
+        }
+    }
+
+    fn compareDates(a: Date, b: Date) i32 {
+        if (a.year != b.year) return @as(i32, a.year) - @as(i32, b.year);
+        if (a.month != b.month) return @as(i32, a.month) - @as(i32, b.month);
+        return @as(i32, a.day) - @as(i32, b.day);
     }
 
     fn validateBalanceAssertions(
@@ -159,13 +232,25 @@ pub const Directive = struct {
         _ = self;
         return undefined;
     }
+
+    fn hasBalance(self: Directive) bool {
+        _ = self;
+        return false;
+    }
+
+    fn getBalance(self: Directive) Balance {
+        _ = self;
+        return undefined;
+    }
 };
 
 const Transaction = struct {
     postings: []const Posting,
+    date: Date,
 };
 
 const Posting = struct {
+    account: []const u8,
     amount: ?Amount,
 };
 
@@ -175,6 +260,11 @@ const Amount = struct {
 };
 
 const Open = struct {
+    account: []const u8,
+    date: Date,
+};
+
+const Balance = struct {
     account: []const u8,
     date: Date,
 };
