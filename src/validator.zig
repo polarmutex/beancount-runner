@@ -196,12 +196,51 @@ pub const Validator = struct {
         directives: []const Directive,
         errors: *std.ArrayList(Error),
     ) !void {
-        _ = self;
-        _ = directives;
-        _ = errors;
-        // TODO: Implement date ordering validation
-        // - Verify directives are sorted by date
-        // - Use line number as secondary sort key
+        if (directives.len == 0) return;
+
+        var prev_date: ?Date = null;
+
+        for (directives, 0..) |directive, idx| {
+            const current_date = getDirectiveDate(directive) orelse continue;
+
+            if (prev_date) |prev| {
+                const cmp = compareDates(current_date, prev);
+                if (cmp < 0) {
+                    try errors.append(self.allocator, Error{
+                        .message = try std.fmt.allocPrint(
+                            self.allocator,
+                            "Directive at index {d} is out of order: {d}-{d:0>2}-{d:0>2} comes after {d}-{d:0>2}-{d:0>2}",
+                            .{
+                                idx,
+                                current_date.year,
+                                current_date.month,
+                                current_date.day,
+                                prev.year,
+                                prev.month,
+                                prev.day,
+                            },
+                        ),
+                        .source = try self.allocator.dupe(u8, "validator"),
+                    });
+                }
+            }
+
+            prev_date = current_date;
+        }
+    }
+
+    fn getDirectiveDate(directive: Directive) ?Date {
+        if (directive.hasTransaction()) {
+            return directive.getTransaction().date;
+        }
+        if (directive.hasOpen()) {
+            return directive.getOpen().date;
+        }
+        if (directive.hasBalance()) {
+            return directive.getBalance().date;
+        }
+        // Other directive types may not have dates
+        return null;
     }
 };
 
