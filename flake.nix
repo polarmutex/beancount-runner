@@ -27,6 +27,7 @@
           with ps; [
             protobuf
             setuptools
+            pytest
           ]);
       in {
         packages.default = pkgs.stdenv.mkDerivation {
