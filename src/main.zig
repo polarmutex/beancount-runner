@@ -2,21 +2,17 @@ const std = @import("std");
 const config = @import("config.zig");
 const Orchestrator = @import("orchestrator.zig").Orchestrator;
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.arena.allocator();
 
-    // Parse command line arguments
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    // Parse command line arguments - Zig 0.16 API
+    const args = try init.minimal.args.toSlice(allocator);
 
     const cli_opts = try parseArgs(allocator, args);
-    defer cli_opts.deinit(allocator);
 
-    // Load pipeline configuration
+    // Load pipeline configuration using init.io
     const config_path = cli_opts.config_path orelse "pipeline.toml";
-    const pipeline_config = try config.loadConfig(allocator, config_path);
+    var pipeline_config = try config.loadConfig(allocator, &init.io, config_path);
     defer pipeline_config.deinit(allocator);
 
     // Override input file if specified on CLI
@@ -36,7 +32,7 @@ pub fn main() !void {
     var orchestrator = try Orchestrator.init(allocator, pipeline_config, cli_opts.verbose);
     defer orchestrator.deinit();
 
-    const result = try orchestrator.run(input_file);
+    var result = try orchestrator.run(input_file);
     defer result.deinit(allocator);
 
     // Output results
@@ -61,15 +57,9 @@ const CliOptions = struct {
     input_file: ?[]const u8,
     config_path: ?[]const u8,
     verbose: bool,
-
-    fn deinit(self: CliOptions, allocator: std.mem.Allocator) void {
-        _ = self;
-        _ = allocator;
-        // Strings are from args, no need to free individually
-    }
 };
 
-fn parseArgs(allocator: std.mem.Allocator, args: [][]const u8) !CliOptions {
+fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) !CliOptions {
     _ = allocator;
 
     var opts = CliOptions{

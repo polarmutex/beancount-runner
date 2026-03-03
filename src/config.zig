@@ -52,12 +52,10 @@ pub const StageType = enum {
     builtin,
 };
 
-pub fn loadConfig(allocator: std.mem.Allocator, path: []const u8) !PipelineConfig {
-    // Read config file
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
-
-    const content = try file.readToEndAlloc(allocator, 1024 * 1024); // 1MB max
+pub fn loadConfig(allocator: std.mem.Allocator, io: *const std.Io, path: []const u8) !PipelineConfig {
+    // Read config file using Zig 0.16 Io interface
+    const cwd_dir = std.Io.Dir.cwd();
+    const content = try cwd_dir.readFileAlloc(io.*, path, allocator, .unlimited);
     defer allocator.free(content);
 
     // Parse TOML (simplified parser for now)

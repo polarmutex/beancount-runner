@@ -1,4 +1,5 @@
 const std = @import("std");
+const proto = @import("proto.zig");
 
 pub const Validator = struct {
     allocator: std.mem.Allocator,
@@ -13,10 +14,9 @@ pub const Validator = struct {
 
     pub fn validate(
         self: *Validator,
-        directives: []const Directive,
+        directives: []const proto.Directive,
     ) !ValidationResult {
-        const ErrorList = std.ArrayList(Error);
-        var errors: ErrorList = .empty;
+        var errors: std.ArrayList(proto.Error) = .empty;
         defer errors.deinit(self.allocator);
 
         // Core validation 1: Transaction balancing
@@ -39,8 +39,8 @@ pub const Validator = struct {
 
     fn validateTransactionBalances(
         self: *Validator,
-        directives: []const Directive,
-        errors: *std.ArrayList(Error),
+        directives: []const proto.Directive,
+        errors: *std.ArrayList(proto.Error),
     ) !void {
         for (directives) |directive| {
             // Skip if not a transaction
@@ -71,7 +71,7 @@ pub const Validator = struct {
             while (iter.next()) |entry| {
                 const balance = entry.value_ptr.*;
                 if (@abs(balance) > self.tolerance) {
-                    try errors.append(self.allocator, Error{
+                    try errors.append(self.allocator, proto.Error{
                         .message = try std.fmt.allocPrint(
                             self.allocator,
                             "Transaction does not balance: {s} off by {d:.2}",
@@ -93,11 +93,11 @@ pub const Validator = struct {
 
     fn validateAccountUsage(
         self: *Validator,
-        directives: []const Directive,
-        errors: *std.ArrayList(Error),
+        directives: []const proto.Directive,
+        errors: *std.ArrayList(proto.Error),
     ) !void {
         // Track opened accounts with their dates
-        var open_accounts = std.StringHashMap(Date).init(self.allocator);
+        var open_accounts = std.StringHashMap(proto.Date).init(self.allocator);
         defer {
             var iter = open_accounts.keyIterator();
             while (iter.next()) |key| {
@@ -122,7 +122,7 @@ pub const Validator = struct {
 
                 for (txn.postings) |posting| {
                     if (!open_accounts.contains(posting.account)) {
-                        try errors.append(self.allocator, Error{
+                        try errors.append(self.allocator, proto.Error{
                             .message = try std.fmt.allocPrint(
                                 self.allocator,
                                 "Account '{s}' used before being opened",
@@ -134,7 +134,7 @@ pub const Validator = struct {
                         // Verify transaction date >= open date
                         const open_date = open_accounts.get(posting.account).?;
                         if (compareDates(txn.date, open_date) < 0) {
-                            try errors.append(self.allocator, Error{
+                            try errors.append(self.allocator, proto.Error{
                                 .message = try std.fmt.allocPrint(
                                     self.allocator,
                                     "Account '{s}' used on {d}-{d:0>2}-{d:0>2} before open date {d}-{d:0>2}-{d:0>2}",
@@ -159,7 +159,7 @@ pub const Validator = struct {
             if (directive.hasBalance()) {
                 const bal = directive.getBalance();
                 if (!open_accounts.contains(bal.account)) {
-                    try errors.append(self.allocator, Error{
+                    try errors.append(self.allocator, proto.Error{
                         .message = try std.fmt.allocPrint(
                             self.allocator,
                             "Balance assertion for unopened account '{s}'",
@@ -172,16 +172,16 @@ pub const Validator = struct {
         }
     }
 
-    fn compareDates(a: Date, b: Date) i32 {
-        if (a.year != b.year) return @as(i32, a.year) - @as(i32, b.year);
-        if (a.month != b.month) return @as(i32, a.month) - @as(i32, b.month);
-        return @as(i32, a.day) - @as(i32, b.day);
+    fn compareDates(a: proto.Date, b: proto.Date) i32 {
+        if (a.year != b.year) return a.year - b.year;
+        if (a.month != b.month) return a.month - b.month;
+        return a.day - b.day;
     }
 
     fn validateBalanceAssertions(
         self: *Validator,
-        directives: []const Directive,
-        errors: *std.ArrayList(Error),
+        directives: []const proto.Directive,
+        errors: *std.ArrayList(proto.Error),
     ) !void {
         _ = self;
         _ = directives;
@@ -193,12 +193,12 @@ pub const Validator = struct {
 
     fn validateDateOrdering(
         self: *Validator,
-        directives: []const Directive,
-        errors: *std.ArrayList(Error),
+        directives: []const proto.Directive,
+        errors: *std.ArrayList(proto.Error),
     ) !void {
         if (directives.len == 0) return;
 
-        var prev_date: ?Date = null;
+        var prev_date: ?proto.Date = null;
 
         for (directives, 0..) |directive, idx| {
             const current_date = getDirectiveDate(directive) orelse continue;
@@ -206,7 +206,7 @@ pub const Validator = struct {
             if (prev_date) |prev| {
                 const cmp = compareDates(current_date, prev);
                 if (cmp < 0) {
-                    try errors.append(self.allocator, Error{
+                    try errors.append(self.allocator, proto.Error{
                         .message = try std.fmt.allocPrint(
                             self.allocator,
                             "Directive at index {d} is out of order: {d}-{d:0>2}-{d:0>2} comes after {d}-{d:0>2}-{d:0>2}",
@@ -229,7 +229,7 @@ pub const Validator = struct {
         }
     }
 
-    fn getDirectiveDate(directive: Directive) ?Date {
+    fn getDirectiveDate(directive: proto.Directive) ?proto.Date {
         if (directive.hasTransaction()) {
             return directive.getTransaction().date;
         }
@@ -239,6 +239,12 @@ pub const Validator = struct {
         if (directive.hasBalance()) {
             return directive.getBalance().date;
         }
+        if (directive.hasClose()) {
+            return directive.getClose().date;
+        }
+        if (directive.hasPad()) {
+            return directive.getPad().date;
+        }
         // Other directive types may not have dates
         return null;
     }
@@ -246,75 +252,5 @@ pub const Validator = struct {
 
 pub const ValidationResult = struct {
     is_valid: bool,
-    errors: []Error,
-};
-
-// Placeholder types (will be replaced with protobuf-generated types)
-// These provide the interface needed for validation logic
-pub const Directive = struct {
-    fn hasTransaction(self: Directive) bool {
-        _ = self;
-        return false; // Stub implementation
-    }
-
-    fn getTransaction(self: Directive) Transaction {
-        _ = self;
-        return Transaction{ .postings = &[_]Posting{} };
-    }
-
-    fn hasOpen(self: Directive) bool {
-        _ = self;
-        return false;
-    }
-
-    fn getOpen(self: Directive) Open {
-        _ = self;
-        return undefined;
-    }
-
-    fn hasBalance(self: Directive) bool {
-        _ = self;
-        return false;
-    }
-
-    fn getBalance(self: Directive) Balance {
-        _ = self;
-        return undefined;
-    }
-};
-
-const Transaction = struct {
-    postings: []const Posting,
-    date: Date,
-};
-
-const Posting = struct {
-    account: []const u8,
-    amount: ?Amount,
-};
-
-const Amount = struct {
-    number: []const u8,
-    currency: []const u8,
-};
-
-const Open = struct {
-    account: []const u8,
-    date: Date,
-};
-
-const Balance = struct {
-    account: []const u8,
-    date: Date,
-};
-
-const Date = struct {
-    year: i32,
-    month: u8,
-    day: u8,
-};
-
-pub const Error = struct {
-    message: []const u8,
-    source: []const u8,
+    errors: []proto.Error,
 };

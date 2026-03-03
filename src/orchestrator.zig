@@ -2,6 +2,7 @@ const std = @import("std");
 const config = @import("config.zig");
 const PluginManager = @import("plugin_manager.zig").PluginManager;
 const validator = @import("validator.zig");
+const proto = @import("proto.zig");
 
 pub const Orchestrator = struct {
     allocator: std.mem.Allocator,
@@ -34,8 +35,8 @@ pub const Orchestrator = struct {
         }
 
         // Initialize result
-        var directives = std.ArrayList(Directive).init(self.allocator);
-        var errors = std.ArrayList(Error).init(self.allocator);
+        var directives: std.ArrayList(proto.Directive) = .empty;
+        var errors: std.ArrayList(proto.Error) = .empty;
         var options = std.StringHashMap([]const u8).init(self.allocator);
 
         // Copy initial options from config
@@ -71,10 +72,10 @@ pub const Orchestrator = struct {
 
                     // Replace directives with plugin output
                     directives.clearRetainingCapacity();
-                    try directives.appendSlice(result.directives);
+                    try directives.appendSlice(self.allocator, result.directives);
 
                     // Accumulate errors
-                    try errors.appendSlice(result.errors);
+                    try errors.appendSlice(self.allocator, result.errors);
 
                     // Update options if plugin modified them
                     var opt_iter = result.updated_options.iterator();
@@ -85,7 +86,7 @@ pub const Orchestrator = struct {
                 .builtin => {
                     if (std.mem.eql(u8, stage.function_name.?, "validate_all")) {
                         const val_result = try self.runValidator(directives.items);
-                        try errors.appendSlice(val_result.errors);
+                        try errors.appendSlice(self.allocator, val_result.errors);
                     }
                 },
             }
@@ -99,8 +100,8 @@ pub const Orchestrator = struct {
         }
 
         return PipelineResult{
-            .directives = try directives.toOwnedSlice(),
-            .errors = try errors.toOwnedSlice(),
+            .directives = try directives.toOwnedSlice(self.allocator),
+            .errors = try errors.toOwnedSlice(self.allocator),
             .options = options,
         };
     }
@@ -108,11 +109,10 @@ pub const Orchestrator = struct {
     fn runExternalStage(
         self: *Orchestrator,
         stage: config.StageConfig,
-        current_directives: []const Directive,
+        current_directives: []const proto.Directive,
         options: std.StringHashMap([]const u8),
         input_file: []const u8,
     ) !StageResult {
-        _ = self;
         _ = stage;
         _ = current_directives;
         _ = options;
@@ -127,15 +127,15 @@ pub const Orchestrator = struct {
         // 6. Parse and return results
 
         return StageResult{
-            .directives = &[_]Directive{},
-            .errors = &[_]Error{},
+            .directives = &[_]proto.Directive{},
+            .errors = &[_]proto.Error{},
             .updated_options = std.StringHashMap([]const u8).init(self.allocator),
         };
     }
 
     fn runValidator(
         self: *Orchestrator,
-        directives: []const Directive,
+        directives: []const proto.Directive,
     ) !validator.ValidationResult {
         var val = validator.Validator.init(self.allocator);
         return try val.validate(directives);
@@ -143,11 +143,11 @@ pub const Orchestrator = struct {
 };
 
 pub const PipelineResult = struct {
-    directives: []Directive,
-    errors: []Error,
+    directives: []proto.Directive,
+    errors: []proto.Error,
     options: std.StringHashMap([]const u8),
 
-    pub fn deinit(self: PipelineResult, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *PipelineResult, allocator: std.mem.Allocator) void {
         allocator.free(self.directives);
         allocator.free(self.errors);
 
@@ -161,17 +161,7 @@ pub const PipelineResult = struct {
 };
 
 const StageResult = struct {
-    directives: []const Directive,
-    errors: []const Error,
+    directives: []const proto.Directive,
+    errors: []const proto.Error,
     updated_options: std.StringHashMap([]const u8),
-};
-
-// Placeholder types (will be generated from protobuf)
-pub const Directive = struct {
-    // TODO: Import from generated protobuf code
-};
-
-pub const Error = struct {
-    message: []const u8,
-    source: []const u8,
 };
