@@ -45,14 +45,17 @@
           ];
 
           buildPhase = ''
+            # Set up cache directories for Zig and Cargo
+            export ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-cache
+            export CARGO_HOME=$TMPDIR/cargo
+            mkdir -p $ZIG_GLOBAL_CACHE_DIR $CARGO_HOME
+
             # Generate protobuf code for all languages
             mkdir -p generated/zig generated/rust generated/python
 
-            # Generate Zig protobuf code (requires protobuf-zig plugin)
-            # Note: Will need custom protoc plugin for Zig
-
             # Generate Rust protobuf code
             protoc --rust_out=generated/rust \
+              --rust_opt=experimental-codegen=enabled,kernel=cpp \
               --proto_path=proto \
               proto/*.proto
 
@@ -61,25 +64,26 @@
               --proto_path=proto \
               proto/*.proto
 
-            # Build Zig core
-            zig build-exe src/main.zig \
-              -O ReleaseFast \
-              --name beancount-runner
+            # Build Zig orchestrator using build.zig
+            zig build -Doptimize=ReleaseFast
 
-            # Build Rust parser plugin (when ready)
-            # cd plugins/parser-lima
-            # cargo build --release
-            # cd ../..
+            # Build Rust parser plugin
+            cd plugins/parser-lima
+            cargo build --release
+            cd ../..
           '';
 
           installPhase = ''
             mkdir -p $out/bin $out/lib/plugins $out/share
-            cp beancount-runner $out/bin/
+            cp zig-out/bin/beancount-runner $out/bin/
 
-            # Install plugins when ready
-            # cp plugins/parser-lima/target/release/parser-lima $out/lib/plugins/
+            # Install Rust parser plugin
+            cp plugins/parser-lima/target/release/libparser_lima.so $out/lib/plugins/
 
+            # Install Python plugins
             cp -r plugins/auto-balance $out/lib/plugins/
+
+            # Install configuration and protobuf definitions
             cp pipeline.toml $out/share/
             cp -r proto $out/share/
           '';
