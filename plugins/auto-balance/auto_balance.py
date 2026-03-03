@@ -3,12 +3,14 @@
 import os
 import struct
 import sys
-from typing import BinaryIO
+from typing import BinaryIO, Optional
+from datetime import date, timedelta
 
 # Add generated protobuf code to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../generated/python'))
 
 import messages_pb2
+import directives_pb2
 
 
 def read_raw_message(stream: BinaryIO) -> bytes:
@@ -117,9 +119,98 @@ class PluginHandler:
 
         return response
 
+    def _find_first_balance(self, directives, account: str) -> Optional[directives_pb2.Directive]:
+        """
+        Find the first Balance directive for a given account.
+
+        Args:
+            directives: List of directives to search
+            account: Account name to find balance for
+
+        Returns:
+            First Balance directive for the account, or None if not found
+        """
+        for directive in directives:
+            if directive.HasField("balance") and directive.balance.account == account:
+                return directive
+        return None
+
+    def _create_pad_directive(self, account: str, balance_date) -> directives_pb2.Directive:
+        """
+        Create a Pad directive one day before the given balance date.
+
+        Args:
+            account: Account name to pad
+            balance_date: Date of the balance assertion
+
+        Returns:
+            Pad directive with date one day before balance
+        """
+        # Calculate pad date (one day before balance)
+        bal_date = date(balance_date.year, balance_date.month, balance_date.day)
+        pad_date = bal_date - timedelta(days=1)
+
+        # Create Pad directive
+        pad = directives_pb2.Directive()
+        pad.pad.date.year = pad_date.year
+        pad.pad.date.month = pad_date.month
+        pad.pad.date.day = pad_date.day
+        pad.pad.account = account
+        pad.pad.source_account = "Equity:Opening-Balances"
+
+        return pad
+
+    def _get_directive_date(self, directive: directives_pb2.Directive) -> date:
+        """
+        Extract the date from any directive type.
+
+        Args:
+            directive: Directive to extract date from
+
+        Returns:
+            Date of the directive
+
+        Raises:
+            ValueError: If directive type is unknown
+        """
+        # Check each possible directive type and extract its date
+        if directive.HasField("balance"):
+            d = directive.balance.date
+        elif directive.HasField("pad"):
+            d = directive.pad.date
+        elif directive.HasField("transaction"):
+            d = directive.transaction.date
+        elif directive.HasField("open"):
+            d = directive.open.date
+        elif directive.HasField("close"):
+            d = directive.close.date
+        elif directive.HasField("commodity"):
+            d = directive.commodity.date
+        elif directive.HasField("note"):
+            d = directive.note.date
+        elif directive.HasField("document"):
+            d = directive.document.date
+        elif directive.HasField("price"):
+            d = directive.price.date
+        elif directive.HasField("event"):
+            d = directive.event.date
+        elif directive.HasField("query"):
+            d = directive.query.date
+        elif directive.HasField("custom"):
+            d = directive.custom.date
+        else:
+            raise ValueError("Unknown directive type")
+
+        return date(d.year, d.month, d.day)
+
     def handle_process(self, request: messages_pb2.ProcessRequest) -> messages_pb2.ProcessResponse:
         """
         Handle directive processing request.
+
+        This method implements the auto-balance logic:
+        1. Find all Balance directives
+        2. For each Balance, generate a Pad directive one day before
+        3. Sort all directives by date
 
         Args:
             request: ProcessRequest containing directives to process
@@ -129,9 +220,28 @@ class PluginHandler:
         """
         response = messages_pb2.ProcessResponse()
 
-        # For now, pass through all directives unchanged
-        # This will be extended with actual auto-balance logic later
-        response.directives.extend(request.directives)
+        # Collect accounts that have Balance directives
+        accounts_with_balances = set()
+        for directive in request.directives:
+            if directive.HasField("balance"):
+                accounts_with_balances.add(directive.balance.account)
+
+        # Generate Pad directives for each account (before first Balance)
+        pads_to_add = []
+        for account in accounts_with_balances:
+            first_balance = self._find_first_balance(request.directives, account)
+            if first_balance:
+                pad = self._create_pad_directive(account, first_balance.balance.date)
+                pads_to_add.append(pad)
+
+        # Combine original directives with generated Pads
+        all_directives = list(request.directives) + pads_to_add
+
+        # Sort directives by date
+        all_directives.sort(key=self._get_directive_date)
+
+        # Add sorted directives to response
+        response.directives.extend(all_directives)
 
         return response
 
