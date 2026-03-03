@@ -168,10 +168,10 @@ class PluginHandler:
             directive: Directive to extract date from
 
         Returns:
-            Date of the directive
+            Date of the directive, or a default very old date for empty directives
 
         Raises:
-            ValueError: If directive type is unknown
+            ValueError: If directive type is unknown (should not happen)
         """
         # Check each possible directive type and extract its date
         if directive.HasField("balance"):
@@ -199,7 +199,8 @@ class PluginHandler:
         elif directive.HasField("custom"):
             d = directive.custom.date
         else:
-            raise ValueError("Unknown directive type")
+            # Empty directive - return a default very old date to put it at the beginning
+            return date(1900, 1, 1)
 
         return date(d.year, d.month, d.day)
 
