@@ -11,6 +11,7 @@ path = "src/main.rs"
 beancount-parser-lima = "0.14"
 prost = "0.13"
 prost-types = "0.13"
+time = "0.3"
 
 [build-dependencies]
 prost-build = "0.13"

@@ -5,3 +5,4 @@ pub mod beancount {
 
 pub mod protocol;
 pub mod plugin;
+pub mod converter;
