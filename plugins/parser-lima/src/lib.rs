@@ -2,3 +2,5 @@
 pub mod beancount {
     include!(concat!(env!("OUT_DIR"), "/beancount.rs"));
 }
+
+pub mod protocol;
