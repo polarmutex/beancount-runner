@@ -8,11 +8,13 @@ pub const Orchestrator = struct {
     allocator: std.mem.Allocator,
     config: config.PipelineConfig,
     plugin_manager: PluginManager,
+    io: std.Io,
     verbose: bool,
 
     pub fn init(
         allocator: std.mem.Allocator,
         pipeline_config: config.PipelineConfig,
+        io: std.Io,
         verbose: bool,
     ) !Orchestrator {
         const plugin_manager = try PluginManager.init(allocator);
@@ -21,6 +23,7 @@ pub const Orchestrator = struct {
             .allocator = allocator,
             .config = pipeline_config,
             .plugin_manager = plugin_manager,
+            .io = io,
             .verbose = verbose,
         };
     }
@@ -113,18 +116,65 @@ pub const Orchestrator = struct {
         options: std.StringHashMap([]const u8),
         input_file: []const u8,
     ) !StageResult {
-        _ = stage;
-        _ = current_directives;
-        _ = options;
-        _ = input_file;
+        // Spawn plugin subprocess
+        var plugin = try self.plugin_manager.spawn(
+            self.io,
+            stage.executable.?,
+            stage.args,
+        );
+        defer plugin.deinit(self.io);
 
-        // TODO: Implement external plugin execution
-        // 1. Spawn subprocess
-        // 2. Send InitRequest
-        // 3. Send ProcessRequest with current directives
-        // 4. Receive ProcessResponse
-        // 5. Send ShutdownRequest
-        // 6. Parse and return results
+        // Send init request (as JSON for now)
+        const init_req = try createInitRequest(self.allocator, stage.name, options);
+        defer self.allocator.free(init_req);
+        try plugin.sendMessage(self.io, init_req);
+
+        // Receive init response
+        const init_resp = try plugin.receiveMessage(self.io, self.allocator);
+        defer self.allocator.free(init_resp);
+
+        // Parse response and check success (basic validation)
+        if (std.mem.indexOf(u8, init_resp, "\"success\":true") == null) {
+            return error.PluginInitFailed;
+        }
+
+        // Send process request with input_file in options
+        var options_with_input = try options.clone();
+        defer {
+            var iter = options_with_input.iterator();
+            while (iter.next()) |entry| {
+                if (!options.contains(entry.key_ptr.*)) {
+                    self.allocator.free(entry.key_ptr.*);
+                    self.allocator.free(entry.value_ptr.*);
+                }
+            }
+            options_with_input.deinit();
+        }
+        try options_with_input.put(
+            try self.allocator.dupe(u8, "input_file"),
+            try self.allocator.dupe(u8, input_file),
+        );
+
+        const proc_req = try createProcessRequest(
+            self.allocator,
+            current_directives,
+            options_with_input,
+        );
+        defer self.allocator.free(proc_req);
+        try plugin.sendMessage(self.io, proc_req);
+
+        // Receive process response
+        const proc_resp = try plugin.receiveMessage(self.io, self.allocator);
+        defer self.allocator.free(proc_resp);
+
+        // Parse directives and errors from response
+        // For MVP, we'll return empty results since full JSON parsing is complex
+        // TODO: Implement full JSON -> proto.Directive parsing in Task 18
+
+        // Send shutdown request
+        const shutdown_req = try createShutdownRequest(self.allocator);
+        defer self.allocator.free(shutdown_req);
+        try plugin.sendMessage(self.io, shutdown_req);
 
         return StageResult{
             .directives = &[_]proto.Directive{},
@@ -165,3 +215,39 @@ const StageResult = struct {
     errors: []const proto.Error,
     updated_options: std.StringHashMap([]const u8),
 };
+
+// Helper functions for creating JSON messages (temporary until full protobuf support)
+
+fn createInitRequest(
+    allocator: std.mem.Allocator,
+    name: []const u8,
+    options: std.StringHashMap([]const u8),
+) ![]u8 {
+    // Create JSON representation of InitRequest
+    // Simplified for MVP - just plugin name and empty options
+    _ = options;
+    return try std.fmt.allocPrint(allocator,
+        \\{{"plugin_name": "{s}", "pipeline_stage": "plugin", "options": {{}}}}
+    , .{name});
+}
+
+fn createProcessRequest(
+    allocator: std.mem.Allocator,
+    directives: []const proto.Directive,
+    options: std.StringHashMap([]const u8),
+) ![]u8 {
+    // Create JSON representation of ProcessRequest
+    // For MVP, we'll send minimal data - full serialization will come in Task 18
+    _ = directives;
+
+    // For MVP, just send options without full JSON encoding
+    // In production, we'd need proper JSON library
+    _ = options;
+
+    // Simplified JSON for MVP - plugins will need to handle minimal protocol
+    return try allocator.dupe(u8, "{\"directives\": [], \"options\": {}}");
+}
+
+fn createShutdownRequest(allocator: std.mem.Allocator) ![]u8 {
+    return try allocator.dupe(u8, "{}");
+}

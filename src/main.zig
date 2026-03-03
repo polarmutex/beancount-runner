@@ -29,7 +29,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     // Create and run orchestrator
-    var orchestrator = try Orchestrator.init(allocator, pipeline_config, cli_opts.verbose);
+    var orchestrator = try Orchestrator.init(allocator, pipeline_config, init.io, cli_opts.verbose);
     defer orchestrator.deinit();
 
     var result = try orchestrator.run(input_file);
