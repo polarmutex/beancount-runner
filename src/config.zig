@@ -74,8 +74,20 @@ fn parseToml(allocator: std.mem.Allocator, content: []const u8) !PipelineConfig 
         .stages = undefined,
         .options = std.StringHashMap([]const u8).init(allocator),
     };
+    errdefer {
+        allocator.free(config.input);
+        allocator.free(config.output_format);
+        allocator.free(config.output_path);
+        config.options.deinit();
+    }
 
     var stages: std.ArrayList(StageConfig) = .empty;
+    errdefer {
+        for (stages.items) |*stage| {
+            stage.deinit(allocator);
+        }
+        stages.deinit(allocator);
+    }
     var current_stage: ?StageConfig = null;
     var current_section: []const u8 = "";
 
@@ -183,9 +195,10 @@ fn parseToml(allocator: std.mem.Allocator, content: []const u8) !PipelineConfig 
                                 }
                             }
                         }
+                        const new_args = try args_list.toOwnedSlice(allocator);
                         for (stage.args) |arg| allocator.free(arg);
                         allocator.free(stage.args);
-                        stage.args = try args_list.toOwnedSlice(allocator);
+                        stage.args = new_args;
                     }
                 }
             }
