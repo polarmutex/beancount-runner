@@ -63,58 +63,140 @@ pub fn loadConfig(allocator: std.mem.Allocator, io: *const std.Io, path: []const
 }
 
 fn parseToml(allocator: std.mem.Allocator, content: []const u8) !PipelineConfig {
-    _ = content;
+    // Basic line-by-line TOML parser for MVP
+    // Production would use a proper TOML library
 
-    // TODO: Implement proper TOML parser
-    // For now, return hardcoded config matching pipeline.toml
-
-    var options = std.StringHashMap([]const u8).init(allocator);
-    try options.put(try allocator.dupe(u8, "operating_currency"), try allocator.dupe(u8, "USD"));
-    try options.put(try allocator.dupe(u8, "tolerance_default"), try allocator.dupe(u8, "0.005"));
-
-    const stages = try allocator.alloc(StageConfig, 3);
-
-    // Parser stage
-    stages[0] = StageConfig{
-        .name = try allocator.dupe(u8, "parser"),
-        .stage_type = .external,
-        .executable = try allocator.dupe(u8, "./plugins/parser-lima/target/release/parser-lima"),
-        .args = &[_][]const u8{},
-        .language = try allocator.dupe(u8, "rust"),
-        .description = try allocator.dupe(u8, "Parse beancount file using lima parser"),
-        .function_name = null,
-    };
-
-    // Auto-balance plugin stage
-    stages[1] = StageConfig{
-        .name = try allocator.dupe(u8, "auto-balance"),
-        .stage_type = .external,
-        .executable = try allocator.dupe(u8, "python"),
-        .args = try allocator.dupe([]const u8, &[_][]const u8{
-            try allocator.dupe(u8, "./plugins/auto-balance/auto_balance.py"),
-        }),
-        .language = try allocator.dupe(u8, "python"),
-        .description = try allocator.dupe(u8, "Generate padding entries for balance assertions"),
-        .function_name = null,
-    };
-
-    // Validator stage
-    stages[2] = StageConfig{
-        .name = try allocator.dupe(u8, "validator"),
-        .stage_type = .builtin,
-        .executable = null,
-        .args = &[_][]const u8{},
-        .language = null,
-        .description = try allocator.dupe(u8, "Validate transactions and accounts"),
-        .function_name = try allocator.dupe(u8, "validate_all"),
-    };
-
-    return PipelineConfig{
+    var config = PipelineConfig{
         .input = try allocator.dupe(u8, "examples/sample.beancount"),
         .output_format = try allocator.dupe(u8, "json"),
         .output_path = try allocator.dupe(u8, "output.json"),
         .verbose = false,
-        .stages = stages,
-        .options = options,
+        .stages = undefined,
+        .options = std.StringHashMap([]const u8).init(allocator),
     };
+
+    var stages: std.ArrayList(StageConfig) = .empty;
+    var current_stage: ?StageConfig = null;
+    var current_section: []const u8 = "";
+
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    while (lines.next()) |line| {
+        const trimmed = std.mem.trim(u8, line, " \t\r");
+
+        // Skip comments and empty lines
+        if (trimmed.len == 0 or trimmed[0] == '#') continue;
+
+        // Parse section headers
+        if (trimmed[0] == '[') {
+            // Save current stage if parsing one
+            if (current_stage) |stage| {
+                try stages.append(allocator, stage);
+                current_stage = null;
+            }
+
+            if (std.mem.startsWith(u8, trimmed, "[[pipeline.stages]]")) {
+                current_section = "stage";
+                const empty_args = try allocator.alloc([]const u8, 0);
+                current_stage = StageConfig{
+                    .name = try allocator.dupe(u8, ""),
+                    .stage_type = .external,
+                    .executable = null,
+                    .args = empty_args,
+                    .language = null,
+                    .description = null,
+                    .function_name = null,
+                };
+            } else if (std.mem.startsWith(u8, trimmed, "[pipeline]")) {
+                current_section = "pipeline";
+            } else if (std.mem.startsWith(u8, trimmed, "[options]")) {
+                current_section = "options";
+            } else {
+                // Unknown section, skip
+                current_section = "";
+            }
+            continue;
+        }
+
+        // Parse key = value
+        if (std.mem.indexOf(u8, trimmed, "=")) |eq_pos| {
+            const key = std.mem.trim(u8, trimmed[0..eq_pos], " \t");
+            var value = std.mem.trim(u8, trimmed[eq_pos + 1 ..], " \t");
+
+            // Remove quotes from value if present
+            if (value.len >= 2 and value[0] == '"' and value[value.len - 1] == '"') {
+                value = value[1 .. value.len - 1];
+            }
+
+            // Handle based on current section
+            if (std.mem.eql(u8, current_section, "pipeline")) {
+                if (std.mem.eql(u8, key, "input")) {
+                    allocator.free(config.input);
+                    config.input = try allocator.dupe(u8, value);
+                } else if (std.mem.eql(u8, key, "output_format")) {
+                    allocator.free(config.output_format);
+                    config.output_format = try allocator.dupe(u8, value);
+                } else if (std.mem.eql(u8, key, "output_path")) {
+                    allocator.free(config.output_path);
+                    config.output_path = try allocator.dupe(u8, value);
+                } else if (std.mem.eql(u8, key, "verbose")) {
+                    config.verbose = std.mem.eql(u8, value, "true");
+                }
+            } else if (std.mem.eql(u8, current_section, "options")) {
+                try config.options.put(try allocator.dupe(u8, key), try allocator.dupe(u8, value));
+            } else if (std.mem.eql(u8, current_section, "stage")) {
+                if (current_stage) |*stage| {
+                    if (std.mem.eql(u8, key, "name")) {
+                        allocator.free(stage.name);
+                        stage.name = try allocator.dupe(u8, value);
+                    } else if (std.mem.eql(u8, key, "type")) {
+                        if (std.mem.eql(u8, value, "builtin")) {
+                            stage.stage_type = .builtin;
+                        } else {
+                            stage.stage_type = .external;
+                        }
+                    } else if (std.mem.eql(u8, key, "executable")) {
+                        if (stage.executable) |exe| allocator.free(exe);
+                        stage.executable = try allocator.dupe(u8, value);
+                    } else if (std.mem.eql(u8, key, "language")) {
+                        if (stage.language) |lang| allocator.free(lang);
+                        stage.language = try allocator.dupe(u8, value);
+                    } else if (std.mem.eql(u8, key, "description")) {
+                        if (stage.description) |desc| allocator.free(desc);
+                        stage.description = try allocator.dupe(u8, value);
+                    } else if (std.mem.eql(u8, key, "function")) {
+                        if (stage.function_name) |func| allocator.free(func);
+                        stage.function_name = try allocator.dupe(u8, value);
+                    } else if (std.mem.eql(u8, key, "args")) {
+                        // Parse args array: ["arg1", "arg2"]
+                        var args_list: std.ArrayList([]const u8) = .empty;
+                        if (value.len >= 2 and value[0] == '[' and value[value.len - 1] == ']') {
+                            const args_content = value[1 .. value.len - 1];
+                            var args_iter = std.mem.splitScalar(u8, args_content, ',');
+                            while (args_iter.next()) |arg| {
+                                var arg_trimmed = std.mem.trim(u8, arg, " \t");
+                                // Remove quotes
+                                if (arg_trimmed.len >= 2 and arg_trimmed[0] == '"' and arg_trimmed[arg_trimmed.len - 1] == '"') {
+                                    arg_trimmed = arg_trimmed[1 .. arg_trimmed.len - 1];
+                                }
+                                if (arg_trimmed.len > 0) {
+                                    try args_list.append(allocator, try allocator.dupe(u8, arg_trimmed));
+                                }
+                            }
+                        }
+                        for (stage.args) |arg| allocator.free(arg);
+                        allocator.free(stage.args);
+                        stage.args = try args_list.toOwnedSlice(allocator);
+                    }
+                }
+            }
+        }
+    }
+
+    // Save last stage if exists
+    if (current_stage) |stage| {
+        try stages.append(allocator, stage);
+    }
+
+    config.stages = try stages.toOwnedSlice(allocator);
+    return config;
 }
