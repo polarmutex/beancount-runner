@@ -76,6 +76,46 @@ def write_raw_message(stream: BinaryIO, data: bytes) -> None:
     stream.flush()
 
 
+def read_message(msg_type, stream: BinaryIO):
+    """
+    Read and parse a protobuf message from a binary stream.
+
+    Args:
+        msg_type: Protobuf message type to parse
+        stream: Binary input stream to read from
+
+    Returns:
+        Parsed protobuf message, or None on EOF
+
+    Raises:
+        EOFError: If stream ends unexpectedly
+        google.protobuf.message.DecodeError: If message is invalid
+    """
+    try:
+        raw_data = read_raw_message(stream)
+        msg = msg_type()
+        msg.ParseFromString(raw_data)
+        return msg
+    except EOFError:
+        return None
+
+
+def write_message(stream: BinaryIO, msg) -> None:
+    """
+    Serialize and write a protobuf message to a binary stream.
+
+    Args:
+        stream: Binary output stream to write to
+        msg: Protobuf message to serialize and write
+
+    Raises:
+        ValueError: If serialized message is too large
+        IOError: If write fails
+    """
+    data = msg.SerializeToString()
+    write_raw_message(stream, data)
+
+
 class PluginHandler:
     """
     Handle plugin protocol lifecycle and operations.
@@ -248,7 +288,33 @@ class PluginHandler:
 
 
 def main():
-    print("Auto-balance plugin starting...")
+    """Main plugin loop."""
+    handler = PluginHandler()
+
+    stdin_stream = sys.stdin.buffer
+    stdout_stream = sys.stdout.buffer
+
+    # Handle init
+    init_req = read_message(messages_pb2.InitRequest, stdin_stream)
+    init_resp = handler.handle_init(init_req)
+    write_message(stdout_stream, init_resp)
+
+    # Main process loop
+    while True:
+        try:
+            proc_req = read_message(messages_pb2.ProcessRequest, stdin_stream)
+            if proc_req is None:
+                # EOF - normal shutdown
+                break
+
+            proc_resp = handler.handle_process(proc_req)
+            write_message(stdout_stream, proc_resp)
+
+        except Exception as e:
+            # Log error to stderr (stdout is for protocol)
+            print(f"Error processing: {e}", file=sys.stderr)
+            break
+
 
 if __name__ == "__main__":
     main()
