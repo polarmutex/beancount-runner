@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """Auto-balance plugin for beancount-runner."""
+import os
 import struct
 import sys
 from typing import BinaryIO
+
+# Add generated protobuf code to path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../generated/python'))
+
+import messages_pb2
 
 
 def read_raw_message(stream: BinaryIO) -> bytes:
@@ -66,6 +72,68 @@ def write_raw_message(stream: BinaryIO, data: bytes) -> None:
     stream.write(length_bytes)
     stream.write(data)
     stream.flush()
+
+
+class PluginHandler:
+    """
+    Handle plugin protocol lifecycle and operations.
+
+    This class manages the Init and Process requests from the
+    beancount-runner core, implementing the plugin protocol.
+    """
+
+    VERSION = "0.1.0"
+
+    def __init__(self):
+        """Initialize the plugin handler."""
+        self.initialized = False
+        self.options = {}
+
+    def handle_init(self, request: messages_pb2.InitRequest) -> messages_pb2.InitResponse:
+        """
+        Handle plugin initialization request.
+
+        Args:
+            request: InitRequest containing plugin name, stage, and options
+
+        Returns:
+            InitResponse with success status and plugin metadata
+        """
+        response = messages_pb2.InitResponse()
+
+        # Store options for later use
+        self.options = dict(request.options)
+
+        # Mark as initialized
+        self.initialized = True
+
+        # Build successful response
+        response.success = True
+        response.plugin_version = self.VERSION
+
+        # Set capabilities (can be extended later)
+        response.capabilities["supports_directives"] = "true"
+        response.capabilities["pipeline_stage"] = request.pipeline_stage
+
+        return response
+
+    def handle_process(self, request: messages_pb2.ProcessRequest) -> messages_pb2.ProcessResponse:
+        """
+        Handle directive processing request.
+
+        Args:
+            request: ProcessRequest containing directives to process
+
+        Returns:
+            ProcessResponse with processed directives and any errors
+        """
+        response = messages_pb2.ProcessResponse()
+
+        # For now, pass through all directives unchanged
+        # This will be extended with actual auto-balance logic later
+        response.directives.extend(request.directives)
+
+        return response
 
 
 def main():
