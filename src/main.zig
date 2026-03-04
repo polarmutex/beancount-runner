@@ -1,6 +1,7 @@
 const std = @import("std");
 const config = @import("config.zig");
 const Orchestrator = @import("orchestrator.zig").Orchestrator;
+const output = @import("output.zig");
 
 pub fn main(init: std.process.Init) !void {
     const allocator = init.arena.allocator();
@@ -36,7 +37,7 @@ pub fn main(init: std.process.Init) !void {
     defer result.deinit(allocator);
 
     // Output results
-    try writeOutput(allocator, result, pipeline_config.output_format, pipeline_config.output_path);
+    try writeOutput(allocator, init.io, result, pipeline_config.output_format, pipeline_config.output_path);
 
     // Print summary
     if (cli_opts.verbose) {
@@ -123,17 +124,23 @@ fn printHelp() void {
 
 fn writeOutput(
     allocator: std.mem.Allocator,
+    io: std.Io,
     result: anytype,
     format: []const u8,
     output_path: []const u8,
 ) !void {
-    _ = allocator;
-    _ = result;
-    _ = format;
-    _ = output_path;
-
-    // TODO: Implement output writing
-    // - JSON format
-    // - Protobuf format
-    // - Text format (human-readable)
+    if (std.mem.eql(u8, format, "json")) {
+        try output.writeJson(allocator, io, result.directives, result.errors, output_path);
+    } else if (std.mem.eql(u8, format, "text")) {
+        // Text format not implemented yet
+        std.debug.print("Warning: Text output format not implemented, defaulting to JSON\n", .{});
+        try output.writeJson(allocator, io, result.directives, result.errors, output_path);
+    } else if (std.mem.eql(u8, format, "protobuf")) {
+        // Protobuf format not implemented yet
+        std.debug.print("Warning: Protobuf output format not implemented, defaulting to JSON\n", .{});
+        try output.writeJson(allocator, io, result.directives, result.errors, output_path);
+    } else {
+        std.debug.print("Unsupported output format: {s}\n", .{format});
+        return error.UnsupportedFormat;
+    }
 }
