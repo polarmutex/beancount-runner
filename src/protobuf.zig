@@ -442,3 +442,121 @@ fn decodeLocation(allocator: std.mem.Allocator, data: []const u8) !proto.Locatio
         .column = column,
     };
 }
+
+/// Decode a Posting message from length-delimited bytes
+fn decodePosting(allocator: std.mem.Allocator, data: []const u8) !proto.Posting {
+    var decoder = Decoder.init(allocator, data);
+    var account: []u8 = &[_]u8{};
+    var amount: ?proto.Amount = null;
+    var cost: ?proto.Amount = null;
+    var price: ?proto.Amount = null;
+    var flag: ?[]u8 = null;
+
+    while (try decoder.readTag()) |tag| {
+        switch (tag.field_number) {
+            1 => { // account
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                account = try decoder.readString();
+            },
+            2 => { // amount (optional)
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                const amt_bytes = try decoder.readBytes();
+                amount = try decodeAmount(allocator, amt_bytes);
+            },
+            3 => { // cost (optional)
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                const cost_bytes = try decoder.readBytes();
+                cost = try decodeAmount(allocator, cost_bytes);
+            },
+            4 => { // price (optional)
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                const price_bytes = try decoder.readBytes();
+                price = try decodeAmount(allocator, price_bytes);
+            },
+            5 => { // flag (optional)
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                flag = try decoder.readString();
+            },
+            else => try decoder.skipField(tag.wire_type),
+        }
+    }
+
+    return proto.Posting{
+        .account = account,
+        .amount = amount,
+        .cost = cost,
+        .price = price,
+        .flag = flag,
+    };
+}
+
+/// Decode a Transaction message from length-delimited bytes
+fn decodeTransaction(allocator: std.mem.Allocator, data: []const u8) !proto.Transaction {
+    var decoder = Decoder.init(allocator, data);
+    var date = proto.Date{ .year = 0, .month = 0, .day = 0 };
+    var flag: ?[]u8 = null;
+    var payee: ?[]u8 = null;
+    var narration: []u8 = &[_]u8{};
+    var tags = std.ArrayList([]u8).init(allocator);
+    var links = std.ArrayList([]u8).init(allocator);
+    var postings = std.ArrayList(proto.Posting).init(allocator);
+    var location = proto.Location{ .filename = &[_]u8{}, .line = 0, .column = 0 };
+
+    while (try decoder.readTag()) |tag| {
+        switch (tag.field_number) {
+            1 => { // date
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                const date_bytes = try decoder.readBytes();
+                date = try decodeDate(allocator, date_bytes);
+            },
+            2 => { // flag (optional)
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                flag = try decoder.readString();
+            },
+            3 => { // payee (optional)
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                payee = try decoder.readString();
+            },
+            4 => { // narration
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                narration = try decoder.readString();
+            },
+            5 => { // tags (repeated)
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                const tag_str = try decoder.readString();
+                try tags.append(tag_str);
+            },
+            6 => { // links (repeated)
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                const link_str = try decoder.readString();
+                try links.append(link_str);
+            },
+            7 => { // postings (repeated)
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                const posting_bytes = try decoder.readBytes();
+                const posting = try decodePosting(allocator, posting_bytes);
+                try postings.append(posting);
+            },
+            8 => { // metadata (skip for now)
+                try decoder.skipField(tag.wire_type);
+            },
+            9 => { // location
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                const loc_bytes = try decoder.readBytes();
+                location = try decodeLocation(allocator, loc_bytes);
+            },
+            else => try decoder.skipField(tag.wire_type),
+        }
+    }
+
+    return proto.Transaction{
+        .date = date,
+        .flag = flag,
+        .payee = payee,
+        .narration = narration,
+        .tags = try tags.toOwnedSlice(),
+        .links = try links.toOwnedSlice(),
+        .postings = try postings.toOwnedSlice(),
+        .location = location,
+    };
+}
