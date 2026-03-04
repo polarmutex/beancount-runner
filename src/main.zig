@@ -44,7 +44,23 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n", .{});
         std.debug.print("✅ Pipeline complete\n", .{});
         std.debug.print("📝 Directives: {d}\n", .{result.directives.len});
-        std.debug.print("❌ Errors:     {d}\n", .{result.errors.len});
+
+        // Show directive type breakdown
+        if (result.directives.len > 0) {
+            std.debug.print("\n📋 Directive breakdown:\n", .{});
+            for (result.directives) |directive| {
+                const type_name = switch (directive.directive_type) {
+                    .transaction => "Transaction",
+                    .balance => "Balance",
+                    .open => "Open",
+                    .close => "Close",
+                    .pad => "Pad",
+                };
+                std.debug.print("  - {s}\n", .{type_name});
+            }
+        }
+
+        std.debug.print("\n❌ Errors:     {d}\n", .{result.errors.len});
         std.debug.print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n", .{});
     }
 
