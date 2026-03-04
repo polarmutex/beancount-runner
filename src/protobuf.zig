@@ -263,8 +263,10 @@ fn freeError(allocator: std.mem.Allocator, err: proto.Error) void {
 /// Decode ProcessResponse to extract directives and errors
 pub fn decodeProcessResponseFull(allocator: std.mem.Allocator, data: []const u8) !ProcessResponseData {
     var decoder = Decoder.init(allocator, data);
-    var directives = std.ArrayList(proto.Directive).init(allocator);
-    var errors = std.ArrayList(proto.Error).init(allocator);
+
+    // Use manual slice building to avoid ArrayList issues with proto types
+    var directives_list: []proto.Directive = &[_]proto.Directive{};
+    var errors_list: []proto.Error = &[_]proto.Error{};
 
     while (try decoder.readTag()) |tag| {
         if (tag.wire_type != .length_delimited) {
@@ -277,11 +279,19 @@ pub fn decodeProcessResponseFull(allocator: std.mem.Allocator, data: []const u8)
         switch (tag.field_number) {
             1 => { // directives (repeated)
                 const directive = try decodeDirective(allocator, field_bytes);
-                try directives.append(directive);
+                const old_directives = directives_list;
+                directives_list = try allocator.alloc(proto.Directive, old_directives.len + 1);
+                @memcpy(directives_list[0..old_directives.len], old_directives);
+                directives_list[old_directives.len] = directive;
+                if (old_directives.len > 0) allocator.free(old_directives);
             },
             2 => { // errors (repeated)
                 const err = try decodeError(allocator, field_bytes);
-                try errors.append(err);
+                const old_errors = errors_list;
+                errors_list = try allocator.alloc(proto.Error, old_errors.len + 1);
+                @memcpy(errors_list[0..old_errors.len], old_errors);
+                errors_list[old_errors.len] = err;
+                if (old_errors.len > 0) allocator.free(old_errors);
             },
             3 => { // updated_options (map - skip for now)
                 // Skip map fields
@@ -293,8 +303,8 @@ pub fn decodeProcessResponseFull(allocator: std.mem.Allocator, data: []const u8)
     }
 
     return ProcessResponseData{
-        .directives = try directives.toOwnedSlice(),
-        .errors = try errors.toOwnedSlice(),
+        .directives = directives_list,
+        .errors = errors_list,
         .allocator = allocator,
     };
 }
@@ -625,12 +635,12 @@ fn decodeTransaction(allocator: std.mem.Allocator, data: []const u8) !proto.Tran
     var flag: ?[]u8 = null;
     var payee: ?[]u8 = null;
     var narration: []u8 = &[_]u8{};
-    var tags = std.ArrayList([]u8).init(allocator);
-    errdefer tags.deinit();
-    var links = std.ArrayList([]u8).init(allocator);
-    errdefer links.deinit();
-    var postings = std.ArrayList(proto.Posting).init(allocator);
-    errdefer postings.deinit();
+    var tags: std.ArrayList([]const u8) = .{};
+    errdefer tags.deinit(allocator);
+    var links: std.ArrayList([]const u8) = .{};
+    errdefer links.deinit(allocator);
+    var postings: std.ArrayList(proto.Posting) = .{};
+    errdefer postings.deinit(allocator);
     var location = proto.Location{ .filename = &[_]u8{}, .line = 0, .column = 0 };
 
     while (try decoder.readTag()) |tag| {
@@ -655,18 +665,18 @@ fn decodeTransaction(allocator: std.mem.Allocator, data: []const u8) !proto.Tran
             5 => { // tags (repeated)
                 if (tag.wire_type != .length_delimited) return error.InvalidWireType;
                 const tag_str = try decoder.readString();
-                try tags.append(tag_str);
+                try tags.append(allocator, tag_str);
             },
             6 => { // links (repeated)
                 if (tag.wire_type != .length_delimited) return error.InvalidWireType;
                 const link_str = try decoder.readString();
-                try links.append(link_str);
+                try links.append(allocator, link_str);
             },
             7 => { // postings (repeated)
                 if (tag.wire_type != .length_delimited) return error.InvalidWireType;
                 const posting_bytes = try decoder.readBytes();
                 const posting = try decodePosting(allocator, posting_bytes);
-                try postings.append(posting);
+                try postings.append(allocator, posting);
             },
             8 => { // metadata (skip for now)
                 try decoder.skipField(tag.wire_type);
@@ -690,9 +700,9 @@ fn decodeTransaction(allocator: std.mem.Allocator, data: []const u8) !proto.Tran
         .flag = flag,
         .payee = payee,
         .narration = narration,
-        .tags = try tags.toOwnedSlice(),
-        .links = try links.toOwnedSlice(),
-        .postings = try postings.toOwnedSlice(),
+        .tags = try tags.toOwnedSlice(allocator),
+        .links = try links.toOwnedSlice(allocator),
+        .postings = try postings.toOwnedSlice(allocator),
         .location = location,
     };
 }
@@ -749,8 +759,8 @@ fn decodeOpen(allocator: std.mem.Allocator, data: []const u8) !proto.Open {
     var decoder = Decoder.init(allocator, data);
     var date = proto.Date{ .year = 0, .month = 0, .day = 0 };
     var account: []u8 = &[_]u8{};
-    var currencies = std.ArrayList([]u8).init(allocator);
-    errdefer currencies.deinit();
+    var currencies: std.ArrayList([]const u8) = .{};
+    errdefer currencies.deinit(allocator);
     var location = proto.Location{ .filename = &[_]u8{}, .line = 0, .column = 0 };
 
     while (try decoder.readTag()) |tag| {
@@ -767,7 +777,7 @@ fn decodeOpen(allocator: std.mem.Allocator, data: []const u8) !proto.Open {
             3 => { // currencies (repeated)
                 if (tag.wire_type != .length_delimited) return error.InvalidWireType;
                 const currency = try decoder.readString();
-                try currencies.append(currency);
+                try currencies.append(allocator, currency);
             },
             4 => { // booking_method (optional - skip)
                 try decoder.skipField(tag.wire_type);
@@ -787,7 +797,7 @@ fn decodeOpen(allocator: std.mem.Allocator, data: []const u8) !proto.Open {
     return proto.Open{
         .date = date,
         .account = account,
-        .currencies = try currencies.toOwnedSlice(),
+        .currencies = try currencies.toOwnedSlice(allocator),
         .location = location,
     };
 }

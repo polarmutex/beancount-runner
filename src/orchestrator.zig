@@ -170,13 +170,18 @@ pub const Orchestrator = struct {
         const proc_resp = try plugin.receiveMessage(self.io, self.allocator);
         defer self.allocator.free(proc_resp);
 
-        // Parse response to get counts (full parsing would require complete protobuf decoder)
-        const response_info = try protobuf.decodeProcessResponse(proc_resp);
+        // Parse response to get full directive data
+        const response_data = try protobuf.decodeProcessResponseFull(self.allocator, proc_resp);
+        defer {
+            // Note: response_data owns the memory, we need to copy to return
+            var data_copy = response_data;
+            data_copy.deinit();
+        }
 
         if (self.verbose) {
             std.debug.print("   📊 Plugin returned {d} directives, {d} errors\n", .{
-                response_info.directive_count,
-                response_info.error_count,
+                response_data.directives.len,
+                response_data.errors.len,
             });
         }
 
@@ -188,11 +193,16 @@ pub const Orchestrator = struct {
         defer self.allocator.free(shutdown_req);
         try plugin.sendMessage(self.io, shutdown_req);
 
-        // For MVP: Return empty results with counts logged
-        // TODO: Implement full protobuf -> proto.Directive parsing for complete integration
+        // Copy directives and errors to return (allocator-owned)
+        const directives_copy = try self.allocator.alloc(proto.Directive, response_data.directives.len);
+        @memcpy(directives_copy, response_data.directives);
+
+        const errors_copy = try self.allocator.alloc(proto.Error, response_data.errors.len);
+        @memcpy(errors_copy, response_data.errors);
+
         return StageResult{
-            .directives = &[_]proto.Directive{},
-            .errors = &[_]proto.Error{},
+            .directives = directives_copy,
+            .errors = errors_copy,
             .updated_options = std.StringHashMap([]const u8).init(self.allocator),
         };
     }
