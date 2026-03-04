@@ -40,34 +40,53 @@ Output: directives + errors + options
 ### Prerequisites
 
 - [Nix](https://nixos.org/) with flakes enabled
+- For manual builds: Zig 0.16+, Rust 1.70+, Python 3.11+, protoc 3.x+
 
-### Development Environment
-
-```bash
-# Enter development shell
-nix develop
-
-# Generate protobuf code
-protoc --python_out=generated/python --proto_path=proto proto/*.proto
-
-# Build Zig core (when ready)
-zig build-exe src/main.zig -O ReleaseFast
-
-# Run pipeline
-./beancount-runner --input examples/sample.beancount --verbose
-```
-
-### Using the Flake
+### Using Nix (Recommended)
 
 ```bash
 # Run directly from flake
-nix run . -- --input mybooks.beancount
+nix run . -- --input examples/sample.beancount
 
 # Build the package
-nix build .
+nix build
+./result/bin/beancount-runner --input examples/sample.beancount
 
 # Enter dev shell with all tools
 nix develop
+```
+
+### Building from Source
+
+```bash
+# Generate protobuf code
+protoc --python_out=generated/python --proto_path=proto proto/*.proto
+protoc --rust_out=generated/rust --proto_path=proto proto/*.proto
+
+# Build Zig orchestrator
+zig build -Doptimize=ReleaseFast
+
+# Build Rust parser
+cd plugins/parser-lima && cargo build --release && cd ../..
+
+# Run
+./zig-out/bin/beancount-runner --input examples/sample.beancount
+```
+
+### Testing
+
+```bash
+# Zig tests
+zig build test
+
+# Rust tests
+cd plugins/parser-lima && cargo test
+
+# Python tests
+cd plugins/auto-balance && pytest
+
+# Integration test
+./test/integration_test.sh
 ```
 
 ## Configuration
@@ -173,36 +192,49 @@ beancount-runner/
     └── plugin-protocol.md # Plugin development guide
 ```
 
-## Roadmap
+## Current Status
 
-### Phase 1: Foundation ✅
-- [x] Protobuf schemas (all directive types)
-- [x] Nix flake with dependencies
-- [x] Zig core orchestrator skeleton
-- [x] Pipeline configuration format
+### ✅ Completed (v0.1.0)
+- **Phase 1: Foundation**
+  - Comprehensive protobuf schemas for all Beancount directive types
+  - Nix flake with reproducible builds
+  - Zig core orchestrator with plugin lifecycle management
+  - TOML pipeline configuration
 
-### Phase 2: Rust Parser (In Progress)
-- [ ] Fork beancount_parser_lima
-- [ ] Add protobuf support
-- [ ] Implement plugin protocol
-- [ ] AST → protobuf conversion
+- **Phase 2: Rust Parser Integration**
+  - Rust parser plugin using beancount_parser_lima
+  - Protobuf message I/O (length-prefixed wire format)
+  - Plugin protocol handlers (Init/Process/Shutdown)
+  - Beancount AST to protobuf conversion
 
-### Phase 3: Python Plugin
-- [ ] Auto-balance logic
-- [ ] Protobuf message handling
-- [ ] Protocol compliance
+- **Phase 3: Python Auto-Balance Plugin**
+  - Python plugin project structure
+  - Protobuf message handling
+  - Auto-balance pad generation logic
+  - Plugin protocol compliance
 
-### Phase 4: Zig Validator
-- [ ] Transaction balancing
-- [ ] Account validation
-- [ ] Balance assertions
-- [ ] Date ordering
+- **Phase 4: Zig Validator**
+  - Transaction balance validation
+  - Account usage validation
+  - Date ordering validation
+  - Built-in validator integration
 
-### Phase 5: Integration
-- [ ] End-to-end testing
-- [ ] Performance benchmarking
-- [ ] Documentation
-- [ ] Example files
+- **Phase 5: End-to-End Integration**
+  - Protobuf protocol implementation in Zig
+  - External plugin execution framework
+  - JSON output formatting
+  - Integration tests (parser-only pipeline verified)
+
+### 🚧 In Progress
+- Full protobuf deserialization for directive data
+- Multi-stage pipeline testing (parser + plugin + validator)
+- Complete validation rule set
+
+### 📋 Roadmap
+- Performance benchmarking
+- Additional output formats (text, protobuf)
+- More plugin examples
+- Comprehensive test coverage
 
 ## Contributing
 
