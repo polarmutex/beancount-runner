@@ -358,15 +358,21 @@ fn decodeDate(allocator: std.mem.Allocator, data: []const u8) !proto.Date {
         switch (tag.field_number) {
             1 => { // year
                 if (tag.wire_type != .varint) return error.InvalidWireType;
-                date.year = @as(i32, @intCast(try decoder.readVarint()));
+                const varint = try decoder.readVarint();
+                if (varint > std.math.maxInt(i32)) return error.ValueOutOfRange;
+                date.year = @as(i32, @intCast(varint));
             },
             2 => { // month
                 if (tag.wire_type != .varint) return error.InvalidWireType;
-                date.month = @as(i32, @intCast(try decoder.readVarint()));
+                const varint = try decoder.readVarint();
+                if (varint > std.math.maxInt(i32)) return error.ValueOutOfRange;
+                date.month = @as(i32, @intCast(varint));
             },
             3 => { // day
                 if (tag.wire_type != .varint) return error.InvalidWireType;
-                date.day = @as(i32, @intCast(try decoder.readVarint()));
+                const varint = try decoder.readVarint();
+                if (varint > std.math.maxInt(i32)) return error.ValueOutOfRange;
+                date.day = @as(i32, @intCast(varint));
             },
             else => try decoder.skipField(tag.wire_type),
         }
@@ -416,11 +422,15 @@ fn decodeLocation(allocator: std.mem.Allocator, data: []const u8) !proto.Locatio
             },
             2 => { // line
                 if (tag.wire_type != .varint) return error.InvalidWireType;
-                line = @as(i32, @intCast(try decoder.readVarint()));
+                const varint = try decoder.readVarint();
+                if (varint > std.math.maxInt(i32)) return error.ValueOutOfRange;
+                line = @as(i32, @intCast(varint));
             },
             3 => { // column
                 if (tag.wire_type != .varint) return error.InvalidWireType;
-                column = @as(i32, @intCast(try decoder.readVarint()));
+                const varint = try decoder.readVarint();
+                if (varint > std.math.maxInt(i32)) return error.ValueOutOfRange;
+                column = @as(i32, @intCast(varint));
             },
             else => try decoder.skipField(tag.wire_type),
         }
