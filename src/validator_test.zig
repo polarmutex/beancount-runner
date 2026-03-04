@@ -37,11 +37,23 @@ test "single empty directive passes validation" {
 
 fn createTestDirective(allocator: std.mem.Allocator) Directive {
     _ = allocator;
-    // TODO: Create proper test transaction structure
-    // This will be implemented once we have actual protobuf types
-    // For now, this is a placeholder that will always return an empty directive
-    return Directive{};
+    // Create a minimal test transaction
+    return Directive{
+        .directive_type = .{
+            .transaction = proto.Transaction{
+                .date = proto.Date{ .year = 2024, .month = 1, .day = 1 },
+                .flag = null,
+                .payee = null,
+                .narration = "",
+                .tags = &[_][]const u8{},
+                .links = &[_][]const u8{},
+                .postings = &[_]proto.Posting{},
+                .location = proto.Location{ .filename = "", .line = 0, .column = 0 },
+            },
+        },
+    };
 }
 
-// Import placeholder types from validator module
-const Directive = validator.Directive;
+// Import Directive from proto module
+const proto = @import("proto.zig");
+const Directive = proto.Directive;
