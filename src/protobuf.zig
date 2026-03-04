@@ -573,3 +573,178 @@ fn decodeTransaction(allocator: std.mem.Allocator, data: []const u8) !proto.Tran
         .location = location,
     };
 }
+
+/// Decode a Balance message from length-delimited bytes
+fn decodeBalance(allocator: std.mem.Allocator, data: []const u8) !proto.Balance {
+    var decoder = Decoder.init(allocator, data);
+    var date = proto.Date{ .year = 0, .month = 0, .day = 0 };
+    var account: []u8 = &[_]u8{};
+    var amount = proto.Amount{ .number = &[_]u8{}, .currency = &[_]u8{} };
+    var location = proto.Location{ .filename = &[_]u8{}, .line = 0, .column = 0 };
+
+    while (try decoder.readTag()) |tag| {
+        switch (tag.field_number) {
+            1 => { // date
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                const date_bytes = try decoder.readBytes();
+                date = try decodeDate(allocator, date_bytes);
+            },
+            2 => { // account
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                account = try decoder.readString();
+            },
+            3 => { // amount
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                const amt_bytes = try decoder.readBytes();
+                amount = try decodeAmount(allocator, amt_bytes);
+            },
+            4 => { // tolerance (optional - skip)
+                try decoder.skipField(tag.wire_type);
+            },
+            5 => { // metadata (skip)
+                try decoder.skipField(tag.wire_type);
+            },
+            6 => { // location
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                const loc_bytes = try decoder.readBytes();
+                location = try decodeLocation(allocator, loc_bytes);
+            },
+            else => try decoder.skipField(tag.wire_type),
+        }
+    }
+
+    return proto.Balance{
+        .date = date,
+        .account = account,
+        .amount = amount,
+        .location = location,
+    };
+}
+
+/// Decode an Open message from length-delimited bytes
+fn decodeOpen(allocator: std.mem.Allocator, data: []const u8) !proto.Open {
+    var decoder = Decoder.init(allocator, data);
+    var date = proto.Date{ .year = 0, .month = 0, .day = 0 };
+    var account: []u8 = &[_]u8{};
+    var currencies = std.ArrayList([]u8).init(allocator);
+    errdefer currencies.deinit();
+    var location = proto.Location{ .filename = &[_]u8{}, .line = 0, .column = 0 };
+
+    while (try decoder.readTag()) |tag| {
+        switch (tag.field_number) {
+            1 => { // date
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                const date_bytes = try decoder.readBytes();
+                date = try decodeDate(allocator, date_bytes);
+            },
+            2 => { // account
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                account = try decoder.readString();
+            },
+            3 => { // currencies (repeated)
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                const currency = try decoder.readString();
+                try currencies.append(currency);
+            },
+            4 => { // booking_method (optional - skip)
+                try decoder.skipField(tag.wire_type);
+            },
+            5 => { // metadata (skip)
+                try decoder.skipField(tag.wire_type);
+            },
+            6 => { // location
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                const loc_bytes = try decoder.readBytes();
+                location = try decodeLocation(allocator, loc_bytes);
+            },
+            else => try decoder.skipField(tag.wire_type),
+        }
+    }
+
+    return proto.Open{
+        .date = date,
+        .account = account,
+        .currencies = try currencies.toOwnedSlice(),
+        .location = location,
+    };
+}
+
+/// Decode a Close message from length-delimited bytes
+fn decodeClose(allocator: std.mem.Allocator, data: []const u8) !proto.Close {
+    var decoder = Decoder.init(allocator, data);
+    var date = proto.Date{ .year = 0, .month = 0, .day = 0 };
+    var account: []u8 = &[_]u8{};
+    var location = proto.Location{ .filename = &[_]u8{}, .line = 0, .column = 0 };
+
+    while (try decoder.readTag()) |tag| {
+        switch (tag.field_number) {
+            1 => { // date
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                const date_bytes = try decoder.readBytes();
+                date = try decodeDate(allocator, date_bytes);
+            },
+            2 => { // account
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                account = try decoder.readString();
+            },
+            3 => { // metadata (skip)
+                try decoder.skipField(tag.wire_type);
+            },
+            4 => { // location
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                const loc_bytes = try decoder.readBytes();
+                location = try decodeLocation(allocator, loc_bytes);
+            },
+            else => try decoder.skipField(tag.wire_type),
+        }
+    }
+
+    return proto.Close{
+        .date = date,
+        .account = account,
+        .location = location,
+    };
+}
+
+/// Decode a Pad message from length-delimited bytes
+fn decodePad(allocator: std.mem.Allocator, data: []const u8) !proto.Pad {
+    var decoder = Decoder.init(allocator, data);
+    var date = proto.Date{ .year = 0, .month = 0, .day = 0 };
+    var account: []u8 = &[_]u8{};
+    var source_account: []u8 = &[_]u8{};
+    var location = proto.Location{ .filename = &[_]u8{}, .line = 0, .column = 0 };
+
+    while (try decoder.readTag()) |tag| {
+        switch (tag.field_number) {
+            1 => { // date
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                const date_bytes = try decoder.readBytes();
+                date = try decodeDate(allocator, date_bytes);
+            },
+            2 => { // account
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                account = try decoder.readString();
+            },
+            3 => { // source_account
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                source_account = try decoder.readString();
+            },
+            4 => { // metadata (skip)
+                try decoder.skipField(tag.wire_type);
+            },
+            5 => { // location
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                const loc_bytes = try decoder.readBytes();
+                location = try decodeLocation(allocator, loc_bytes);
+            },
+            else => try decoder.skipField(tag.wire_type),
+        }
+    }
+
+    return proto.Pad{
+        .date = date,
+        .account = account,
+        .source_account = source_account,
+        .location = location,
+    };
+}
