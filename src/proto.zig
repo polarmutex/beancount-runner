@@ -26,7 +26,7 @@ pub const Error = struct {
 
 pub const Posting = struct {
     account: []const u8,
-    amount: ?Amount,
+    amount: ?Amount = null,
     cost: ?Amount = null,
     price: ?Amount = null,
     flag: ?[]const u8 = null,

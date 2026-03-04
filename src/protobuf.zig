@@ -481,6 +481,11 @@ fn decodePosting(allocator: std.mem.Allocator, data: []const u8) !proto.Posting 
         }
     }
 
+    // Validate required fields
+    if (account.len == 0) {
+        return error.MissingRequiredField;
+    }
+
     return proto.Posting{
         .account = account,
         .amount = amount,
@@ -498,8 +503,11 @@ fn decodeTransaction(allocator: std.mem.Allocator, data: []const u8) !proto.Tran
     var payee: ?[]u8 = null;
     var narration: []u8 = &[_]u8{};
     var tags = std.ArrayList([]u8).init(allocator);
+    errdefer tags.deinit();
     var links = std.ArrayList([]u8).init(allocator);
+    errdefer links.deinit();
     var postings = std.ArrayList(proto.Posting).init(allocator);
+    errdefer postings.deinit();
     var location = proto.Location{ .filename = &[_]u8{}, .line = 0, .column = 0 };
 
     while (try decoder.readTag()) |tag| {
@@ -547,6 +555,11 @@ fn decodeTransaction(allocator: std.mem.Allocator, data: []const u8) !proto.Tran
             },
             else => try decoder.skipField(tag.wire_type),
         }
+    }
+
+    // Validate required fields
+    if (narration.len == 0) {
+        return error.MissingRequiredField;
     }
 
     return proto.Transaction{
