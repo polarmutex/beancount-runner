@@ -25,24 +25,21 @@ impl PluginHandler {
     }
 
     pub fn handle_process(&self, request: ProcessRequest) -> ProcessResponse {
-        // Get input file from options
-        let input_file = match request.options_map.get("input_file") {
-            Some(path) => path,
-            None => {
-                return ProcessResponse {
-                    directives: vec![],
-                    errors: vec![Error {
-                        message: "Missing input_file in options".to_string(),
-                        source: "parser-lima".to_string(),
-                        location: None,
-                    }],
-                    updated_options: HashMap::new(),
-                };
-            }
-        };
+        // Get input file from ProcessRequest field (not options_map)
+        if request.input_file.is_empty() {
+            return ProcessResponse {
+                directives: vec![],
+                errors: vec![Error {
+                    message: "Missing input_file in ProcessRequest".to_string(),
+                    source: "parser-lima".to_string(),
+                    location: None,
+                }],
+                updated_options: HashMap::new(),
+            };
+        }
 
         // Parse the beancount file
-        match self.parse_file(input_file) {
+        match self.parse_file(&request.input_file) {
             Ok((directives, warnings)) => {
                 // Convert warnings to errors (non-fatal)
                 let errors: Vec<Error> = warnings

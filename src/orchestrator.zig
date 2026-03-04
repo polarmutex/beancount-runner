@@ -3,6 +3,7 @@ const config = @import("config.zig");
 const PluginManager = @import("plugin_manager.zig").PluginManager;
 const validator = @import("validator.zig");
 const proto = @import("proto.zig");
+const protobuf = @import("protobuf.zig");
 
 pub const Orchestrator = struct {
     allocator: std.mem.Allocator,
@@ -112,7 +113,7 @@ pub const Orchestrator = struct {
     fn runExternalStage(
         self: *Orchestrator,
         stage: config.StageConfig,
-        current_directives: []const proto.Directive,
+        _: []const proto.Directive,
         options: std.StringHashMap([]const u8),
         input_file: []const u8,
     ) !StageResult {
@@ -124,8 +125,13 @@ pub const Orchestrator = struct {
         );
         defer plugin.deinit(self.io);
 
-        // Send init request (as JSON for now)
-        const init_req = try createInitRequest(self.allocator, stage.name, options);
+        // Send init request (protobuf encoded)
+        const init_req = try protobuf.encodeInitRequest(
+            self.allocator,
+            stage.name,
+            "plugin",
+            options,
+        );
         defer self.allocator.free(init_req);
         try plugin.sendMessage(self.io, init_req);
 
@@ -133,12 +139,13 @@ pub const Orchestrator = struct {
         const init_resp = try plugin.receiveMessage(self.io, self.allocator);
         defer self.allocator.free(init_resp);
 
-        // Parse response and check success (basic validation)
-        if (std.mem.indexOf(u8, init_resp, "\"success\":true") == null) {
+        // Parse response and check success
+        const success = try protobuf.decodeInitResponse(init_resp);
+        if (!success) {
             return error.PluginInitFailed;
         }
 
-        // Send process request with input_file in options
+        // Send process request with input_file and options
         var options_with_input = try options.clone();
         defer {
             var iter = options_with_input.iterator();
@@ -150,14 +157,10 @@ pub const Orchestrator = struct {
             }
             options_with_input.deinit();
         }
-        try options_with_input.put(
-            try self.allocator.dupe(u8, "input_file"),
-            try self.allocator.dupe(u8, input_file),
-        );
 
-        const proc_req = try createProcessRequest(
+        const proc_req = try protobuf.encodeProcessRequest(
             self.allocator,
-            current_directives,
+            input_file,
             options_with_input,
         );
         defer self.allocator.free(proc_req);
@@ -167,15 +170,26 @@ pub const Orchestrator = struct {
         const proc_resp = try plugin.receiveMessage(self.io, self.allocator);
         defer self.allocator.free(proc_resp);
 
-        // Parse directives and errors from response
-        // For MVP, we'll return empty results since full JSON parsing is complex
-        // TODO: Implement full JSON -> proto.Directive parsing in Task 18
+        // Parse response to get counts (full parsing would require complete protobuf decoder)
+        const response_info = try protobuf.decodeProcessResponse(proc_resp);
+
+        if (self.verbose) {
+            std.debug.print("   📊 Plugin returned {d} directives, {d} errors\n", .{
+                response_info.directive_count,
+                response_info.error_count,
+            });
+        }
 
         // Send shutdown request
-        const shutdown_req = try createShutdownRequest(self.allocator);
+        const shutdown_req = try protobuf.encodeShutdownRequest(
+            self.allocator,
+            "pipeline_complete",
+        );
         defer self.allocator.free(shutdown_req);
         try plugin.sendMessage(self.io, shutdown_req);
 
+        // For MVP: Return empty results with counts logged
+        // TODO: Implement full protobuf -> proto.Directive parsing for complete integration
         return StageResult{
             .directives = &[_]proto.Directive{},
             .errors = &[_]proto.Error{},
@@ -216,38 +230,4 @@ const StageResult = struct {
     updated_options: std.StringHashMap([]const u8),
 };
 
-// Helper functions for creating JSON messages (temporary until full protobuf support)
-
-fn createInitRequest(
-    allocator: std.mem.Allocator,
-    name: []const u8,
-    options: std.StringHashMap([]const u8),
-) ![]u8 {
-    // Create JSON representation of InitRequest
-    // Simplified for MVP - just plugin name and empty options
-    _ = options;
-    return try std.fmt.allocPrint(allocator,
-        \\{{"plugin_name": "{s}", "pipeline_stage": "plugin", "options": {{}}}}
-    , .{name});
-}
-
-fn createProcessRequest(
-    allocator: std.mem.Allocator,
-    directives: []const proto.Directive,
-    options: std.StringHashMap([]const u8),
-) ![]u8 {
-    // Create JSON representation of ProcessRequest
-    // For MVP, we'll send minimal data - full serialization will come in Task 18
-    _ = directives;
-
-    // For MVP, just send options without full JSON encoding
-    // In production, we'd need proper JSON library
-    _ = options;
-
-    // Simplified JSON for MVP - plugins will need to handle minimal protocol
-    return try allocator.dupe(u8, "{\"directives\": [], \"options\": {}}");
-}
-
-fn createShutdownRequest(allocator: std.mem.Allocator) ![]u8 {
-    return try allocator.dupe(u8, "{}");
-}
+// Note: Protobuf encoding is now handled by protobuf.zig module

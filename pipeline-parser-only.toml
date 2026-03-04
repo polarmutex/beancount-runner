@@ -1,0 +1,19 @@
+# Test pipeline with parser only
+
+[pipeline]
+input = "examples/sample.beancount"
+output_format = "json"
+output_path = "output.json"
+verbose = false
+
+# Stage 1: Parser only
+[[pipeline.stages]]
+name = "parser"
+type = "external"
+executable = "./plugins/parser-lima/target/release/parser-lima"
+language = "rust"
+description = "Parse beancount file using lima parser"
+
+[options]
+operating_currency = "USD"
+tolerance_default = "0.005"
