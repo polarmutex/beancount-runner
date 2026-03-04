@@ -176,6 +176,129 @@ pub const ProcessResponseInfo = struct {
     error_count: usize,
 };
 
+/// ProcessResponse decoder result with full directive data
+pub const ProcessResponseData = struct {
+    directives: []proto.Directive,
+    errors: []proto.Error,
+    allocator: std.mem.Allocator,
+
+    pub fn deinit(self: *ProcessResponseData) void {
+        // Free directives
+        for (self.directives) |directive| {
+            freeDirective(self.allocator, directive);
+        }
+        self.allocator.free(self.directives);
+
+        // Free errors
+        for (self.errors) |err| {
+            freeError(self.allocator, err);
+        }
+        self.allocator.free(self.errors);
+    }
+};
+
+/// Free memory allocated for a directive
+fn freeDirective(allocator: std.mem.Allocator, directive: proto.Directive) void {
+    switch (directive.directive_type) {
+        .transaction => |txn| {
+            if (txn.flag) |f| allocator.free(f);
+            if (txn.payee) |p| allocator.free(p);
+            allocator.free(txn.narration);
+            for (txn.tags) |tag| allocator.free(tag);
+            allocator.free(txn.tags);
+            for (txn.links) |link| allocator.free(link);
+            allocator.free(txn.links);
+            for (txn.postings) |posting| {
+                allocator.free(posting.account);
+                if (posting.amount) |amt| {
+                    allocator.free(amt.number);
+                    allocator.free(amt.currency);
+                }
+                if (posting.cost) |c| {
+                    allocator.free(c.number);
+                    allocator.free(c.currency);
+                }
+                if (posting.price) |p| {
+                    allocator.free(p.number);
+                    allocator.free(p.currency);
+                }
+                if (posting.flag) |f| allocator.free(f);
+            }
+            allocator.free(txn.postings);
+            allocator.free(txn.location.filename);
+        },
+        .balance => |bal| {
+            allocator.free(bal.account);
+            allocator.free(bal.amount.number);
+            allocator.free(bal.amount.currency);
+            allocator.free(bal.location.filename);
+        },
+        .open => |open| {
+            allocator.free(open.account);
+            for (open.currencies) |cur| allocator.free(cur);
+            allocator.free(open.currencies);
+            allocator.free(open.location.filename);
+        },
+        .close => |close| {
+            allocator.free(close.account);
+            allocator.free(close.location.filename);
+        },
+        .pad => |pad| {
+            allocator.free(pad.account);
+            allocator.free(pad.source_account);
+            allocator.free(pad.location.filename);
+        },
+    }
+}
+
+/// Free memory allocated for an error
+fn freeError(allocator: std.mem.Allocator, err: proto.Error) void {
+    allocator.free(err.message);
+    allocator.free(err.source);
+    if (err.location) |loc| {
+        allocator.free(loc.filename);
+    }
+}
+
+/// Decode ProcessResponse to extract directives and errors
+pub fn decodeProcessResponseFull(allocator: std.mem.Allocator, data: []const u8) !ProcessResponseData {
+    var decoder = Decoder.init(allocator, data);
+    var directives = std.ArrayList(proto.Directive).init(allocator);
+    var errors = std.ArrayList(proto.Error).init(allocator);
+
+    while (try decoder.readTag()) |tag| {
+        if (tag.wire_type != .length_delimited) {
+            try decoder.skipField(tag.wire_type);
+            continue;
+        }
+
+        const field_bytes = try decoder.readBytes();
+
+        switch (tag.field_number) {
+            1 => { // directives (repeated)
+                const directive = try decodeDirective(allocator, field_bytes);
+                try directives.append(directive);
+            },
+            2 => { // errors (repeated)
+                const err = try decodeError(allocator, field_bytes);
+                try errors.append(err);
+            },
+            3 => { // updated_options (map - skip for now)
+                // Skip map fields
+            },
+            else => {
+                // Unknown field - skip
+            },
+        }
+    }
+
+    return ProcessResponseData{
+        .directives = try directives.toOwnedSlice(),
+        .errors = try errors.toOwnedSlice(),
+        .allocator = allocator,
+    };
+}
+
 /// Decode ProcessResponse to count directives and errors
 pub fn decodeProcessResponse(data: []const u8) !ProcessResponseInfo {
     var directive_count: usize = 0;
