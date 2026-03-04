@@ -748,3 +748,54 @@ fn decodePad(allocator: std.mem.Allocator, data: []const u8) !proto.Pad {
         .location = location,
     };
 }
+
+/// Decode a Directive message from length-delimited bytes
+fn decodeDirective(allocator: std.mem.Allocator, data: []const u8) !proto.Directive {
+    var decoder = Decoder.init(allocator, data);
+
+    // Directive is a oneof - only one field will be set
+    while (try decoder.readTag()) |tag| {
+        if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+
+        const directive_bytes = try decoder.readBytes();
+
+        switch (tag.field_number) {
+            1 => { // transaction
+                const txn = try decodeTransaction(allocator, directive_bytes);
+                return proto.Directive{
+                    .directive_type = .{ .transaction = txn },
+                };
+            },
+            2 => { // balance
+                const bal = try decodeBalance(allocator, directive_bytes);
+                return proto.Directive{
+                    .directive_type = .{ .balance = bal },
+                };
+            },
+            3 => { // open
+                const open = try decodeOpen(allocator, directive_bytes);
+                return proto.Directive{
+                    .directive_type = .{ .open = open },
+                };
+            },
+            4 => { // close
+                const close = try decodeClose(allocator, directive_bytes);
+                return proto.Directive{
+                    .directive_type = .{ .close = close },
+                };
+            },
+            6 => { // pad (field 5 is commodity, skipping for now)
+                const pad = try decodePad(allocator, directive_bytes);
+                return proto.Directive{
+                    .directive_type = .{ .pad = pad },
+                };
+            },
+            else => {
+                // Unknown directive type - skip
+                continue;
+            },
+        }
+    }
+
+    return error.NoDirectiveTypeFound;
+}
