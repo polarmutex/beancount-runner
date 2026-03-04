@@ -799,3 +799,36 @@ fn decodeDirective(allocator: std.mem.Allocator, data: []const u8) !proto.Direct
 
     return error.NoDirectiveTypeFound;
 }
+
+/// Decode an Error message from length-delimited bytes
+fn decodeError(allocator: std.mem.Allocator, data: []const u8) !proto.Error {
+    var decoder = Decoder.init(allocator, data);
+    var message: []u8 = &[_]u8{};
+    var source: []u8 = &[_]u8{};
+    var location: ?proto.Location = null;
+
+    while (try decoder.readTag()) |tag| {
+        switch (tag.field_number) {
+            1 => { // message
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                message = try decoder.readString();
+            },
+            2 => { // source
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                source = try decoder.readString();
+            },
+            3 => { // location (optional)
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                const loc_bytes = try decoder.readBytes();
+                location = try decodeLocation(allocator, loc_bytes);
+            },
+            else => try decoder.skipField(tag.wire_type),
+        }
+    }
+
+    return proto.Error{
+        .message = message,
+        .source = source,
+        .location = location,
+    };
+}
