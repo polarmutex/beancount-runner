@@ -1,4 +1,5 @@
 const std = @import("std");
+const proto = @import("proto.zig");
 
 /// Protobuf wire types
 const WireType = enum(u3) {
@@ -347,3 +348,87 @@ pub const Decoder = struct {
         }
     }
 };
+
+/// Decode a Date message from length-delimited bytes
+fn decodeDate(allocator: std.mem.Allocator, data: []const u8) !proto.Date {
+    var decoder = Decoder.init(allocator, data);
+    var date = proto.Date{ .year = 0, .month = 0, .day = 0 };
+
+    while (try decoder.readTag()) |tag| {
+        switch (tag.field_number) {
+            1 => { // year
+                if (tag.wire_type != .varint) return error.InvalidWireType;
+                date.year = @as(i32, @intCast(try decoder.readVarint()));
+            },
+            2 => { // month
+                if (tag.wire_type != .varint) return error.InvalidWireType;
+                date.month = @as(i32, @intCast(try decoder.readVarint()));
+            },
+            3 => { // day
+                if (tag.wire_type != .varint) return error.InvalidWireType;
+                date.day = @as(i32, @intCast(try decoder.readVarint()));
+            },
+            else => try decoder.skipField(tag.wire_type),
+        }
+    }
+
+    return date;
+}
+
+/// Decode an Amount message from length-delimited bytes
+fn decodeAmount(allocator: std.mem.Allocator, data: []const u8) !proto.Amount {
+    var decoder = Decoder.init(allocator, data);
+    var number: []u8 = &[_]u8{};
+    var currency: []u8 = &[_]u8{};
+
+    while (try decoder.readTag()) |tag| {
+        switch (tag.field_number) {
+            1 => { // number
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                number = try decoder.readString();
+            },
+            2 => { // currency
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                currency = try decoder.readString();
+            },
+            else => try decoder.skipField(tag.wire_type),
+        }
+    }
+
+    return proto.Amount{
+        .number = number,
+        .currency = currency,
+    };
+}
+
+/// Decode a Location message from length-delimited bytes
+fn decodeLocation(allocator: std.mem.Allocator, data: []const u8) !proto.Location {
+    var decoder = Decoder.init(allocator, data);
+    var filename: []u8 = &[_]u8{};
+    var line: i32 = 0;
+    var column: i32 = 0;
+
+    while (try decoder.readTag()) |tag| {
+        switch (tag.field_number) {
+            1 => { // filename
+                if (tag.wire_type != .length_delimited) return error.InvalidWireType;
+                filename = try decoder.readString();
+            },
+            2 => { // line
+                if (tag.wire_type != .varint) return error.InvalidWireType;
+                line = @as(i32, @intCast(try decoder.readVarint()));
+            },
+            3 => { // column
+                if (tag.wire_type != .varint) return error.InvalidWireType;
+                column = @as(i32, @intCast(try decoder.readVarint()));
+            },
+            else => try decoder.skipField(tag.wire_type),
+        }
+    }
+
+    return proto.Location{
+        .filename = filename,
+        .line = line,
+        .column = column,
+    };
+}
