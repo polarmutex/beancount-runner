@@ -272,7 +272,14 @@ pub const Decoder = struct {
         }
 
         const tag = try self.readVarint();
-        const field_number = @as(u32, @intCast(tag >> 3));
+        const field_num_u64 = tag >> 3;
+
+        // Protobuf field numbers must be <= 2^29 - 1
+        if (field_num_u64 > 536870911) {
+            return error.InvalidFieldNumber;
+        }
+
+        const field_number = @as(u32, @intCast(field_num_u64));
         const wire_type_int = @as(u3, @intCast(tag & 0x07));
         const wire_type = @as(WireType, @enumFromInt(wire_type_int));
 
@@ -282,8 +289,19 @@ pub const Decoder = struct {
     /// Read length-delimited bytes
     fn readBytes(self: *Decoder) ![]const u8 {
         const len = try self.readVarint();
+
+        // Check if len fits in usize
+        if (len > std.math.maxInt(usize)) {
+            return error.MessageTooLarge;
+        }
+
+        const len_usize = @as(usize, @intCast(len));
         const start = self.pos;
-        const end = start + @as(usize, @intCast(len));
+
+        // Check for overflow in addition
+        const end = std.math.add(usize, start, len_usize) catch {
+            return error.MessageTooLarge;
+        };
 
         if (end > self.data.len) {
             return error.UnexpectedEof;
@@ -311,7 +329,13 @@ pub const Decoder = struct {
             },
             .length_delimited => {
                 const len = try self.readVarint();
-                const end = self.pos + @as(usize, @intCast(len));
+                if (len > std.math.maxInt(usize)) {
+                    return error.MessageTooLarge;
+                }
+                const len_usize = @as(usize, @intCast(len));
+                const end = std.math.add(usize, self.pos, len_usize) catch {
+                    return error.MessageTooLarge;
+                };
                 if (end > self.data.len) return error.UnexpectedEof;
                 self.pos = end;
             },
