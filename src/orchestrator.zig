@@ -113,7 +113,7 @@ pub const Orchestrator = struct {
     fn runExternalStage(
         self: *Orchestrator,
         stage: config.StageConfig,
-        _: []const proto.Directive,
+        directives: []const proto.Directive,
         options: std.StringHashMap([]const u8),
         input_file: []const u8,
     ) !StageResult {
@@ -160,6 +160,7 @@ pub const Orchestrator = struct {
 
         const proc_req = try protobuf.encodeProcessRequest(
             self.allocator,
+            directives,
             input_file,
             options_with_input,
         );
@@ -171,12 +172,9 @@ pub const Orchestrator = struct {
         defer self.allocator.free(proc_resp);
 
         // Parse response to get full directive data
+        // Note: response_data memory is allocated with self.allocator, so we transfer ownership
+        // to the caller instead of copying. Don't call deinit() - the orchestrator owns this memory.
         const response_data = try protobuf.decodeProcessResponseFull(self.allocator, proc_resp);
-        defer {
-            // Note: response_data owns the memory, we need to copy to return
-            var data_copy = response_data;
-            data_copy.deinit();
-        }
 
         if (self.verbose) {
             std.debug.print("   📊 Plugin returned {d} directives, {d} errors\n", .{
@@ -193,16 +191,10 @@ pub const Orchestrator = struct {
         defer self.allocator.free(shutdown_req);
         try plugin.sendMessage(self.io, shutdown_req);
 
-        // Copy directives and errors to return (allocator-owned)
-        const directives_copy = try self.allocator.alloc(proto.Directive, response_data.directives.len);
-        @memcpy(directives_copy, response_data.directives);
-
-        const errors_copy = try self.allocator.alloc(proto.Error, response_data.errors.len);
-        @memcpy(errors_copy, response_data.errors);
-
+        // Transfer ownership of directives and errors (already allocated with self.allocator)
         return StageResult{
-            .directives = directives_copy,
-            .errors = errors_copy,
+            .directives = response_data.directives,
+            .errors = response_data.errors,
             .updated_options = std.StringHashMap([]const u8).init(self.allocator),
         };
     }

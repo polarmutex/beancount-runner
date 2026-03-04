@@ -85,7 +85,260 @@ pub const Encoder = struct {
             try self.buffer.appendSlice(self.allocator, entry_bytes);
         }
     }
+
+    /// Write an int32 field
+    pub fn writeInt32(self: *Encoder, field_number: u32, value: i32) !void {
+        if (value == 0) return; // Skip zero values
+        try self.writeTag(field_number, .varint);
+        // Encode as unsigned (zig-zag not needed for positive values like dates)
+        try self.writeVarint(@as(u64, @intCast(value)));
+    }
+
+    /// Write a length-delimited submessage
+    pub fn writeSubmessage(self: *Encoder, field_number: u32, data: []const u8) !void {
+        if (data.len == 0) return; // Skip empty submessages
+        try self.writeTag(field_number, .length_delimited);
+        try self.writeVarint(data.len);
+        try self.buffer.appendSlice(self.allocator, data);
+    }
 };
+
+/// Encode a Date message
+pub fn encodeDate(allocator: std.mem.Allocator, date: proto.Date) ![]u8 {
+    var encoder = Encoder.init(allocator);
+    defer encoder.deinit();
+
+    try encoder.writeInt32(1, date.year);
+    try encoder.writeInt32(2, date.month);
+    try encoder.writeInt32(3, date.day);
+
+    return encoder.toOwnedSlice();
+}
+
+/// Encode an Amount message
+pub fn encodeAmount(allocator: std.mem.Allocator, amount: proto.Amount) ![]u8 {
+    var encoder = Encoder.init(allocator);
+    defer encoder.deinit();
+
+    try encoder.writeString(1, amount.number);
+    try encoder.writeString(2, amount.currency);
+
+    return encoder.toOwnedSlice();
+}
+
+/// Encode a Location message
+pub fn encodeLocation(allocator: std.mem.Allocator, location: proto.Location) ![]u8 {
+    var encoder = Encoder.init(allocator);
+    defer encoder.deinit();
+
+    try encoder.writeString(1, location.filename);
+    try encoder.writeInt32(2, location.line);
+    try encoder.writeInt32(3, location.column);
+
+    return encoder.toOwnedSlice();
+}
+
+/// Encode a Posting message
+pub fn encodePosting(allocator: std.mem.Allocator, posting: proto.Posting) ![]u8 {
+    var encoder = Encoder.init(allocator);
+    defer encoder.deinit();
+
+    try encoder.writeString(1, posting.account);
+
+    if (posting.amount) |amount| {
+        const amount_bytes = try encodeAmount(allocator, amount);
+        defer allocator.free(amount_bytes);
+        try encoder.writeSubmessage(2, amount_bytes);
+    }
+
+    if (posting.cost) |cost| {
+        const cost_bytes = try encodeAmount(allocator, cost);
+        defer allocator.free(cost_bytes);
+        try encoder.writeSubmessage(3, cost_bytes);
+    }
+
+    if (posting.price) |price| {
+        const price_bytes = try encodeAmount(allocator, price);
+        defer allocator.free(price_bytes);
+        try encoder.writeSubmessage(4, price_bytes);
+    }
+
+    if (posting.flag) |flag| {
+        try encoder.writeString(5, flag);
+    }
+
+    return encoder.toOwnedSlice();
+}
+
+/// Encode a Transaction message
+pub fn encodeTransaction(allocator: std.mem.Allocator, txn: proto.Transaction) ![]u8 {
+    var encoder = Encoder.init(allocator);
+    defer encoder.deinit();
+
+    const date_bytes = try encodeDate(allocator, txn.date);
+    defer allocator.free(date_bytes);
+    try encoder.writeSubmessage(1, date_bytes);
+
+    if (txn.flag) |flag| {
+        try encoder.writeString(2, flag);
+    }
+
+    if (txn.payee) |payee| {
+        try encoder.writeString(3, payee);
+    }
+
+    try encoder.writeString(4, txn.narration);
+
+    for (txn.tags) |tag| {
+        try encoder.writeString(5, tag);
+    }
+
+    for (txn.links) |link| {
+        try encoder.writeString(6, link);
+    }
+
+    for (txn.postings) |posting| {
+        const posting_bytes = try encodePosting(allocator, posting);
+        defer allocator.free(posting_bytes);
+        try encoder.writeSubmessage(7, posting_bytes);
+    }
+
+    // Field 8: metadata (skip for now)
+
+    const location_bytes = try encodeLocation(allocator, txn.location);
+    defer allocator.free(location_bytes);
+    try encoder.writeSubmessage(9, location_bytes);
+
+    return encoder.toOwnedSlice();
+}
+
+/// Encode a Balance message
+pub fn encodeBalance(allocator: std.mem.Allocator, balance: proto.Balance) ![]u8 {
+    var encoder = Encoder.init(allocator);
+    defer encoder.deinit();
+
+    const date_bytes = try encodeDate(allocator, balance.date);
+    defer allocator.free(date_bytes);
+    try encoder.writeSubmessage(1, date_bytes);
+
+    try encoder.writeString(2, balance.account);
+
+    const amount_bytes = try encodeAmount(allocator, balance.amount);
+    defer allocator.free(amount_bytes);
+    try encoder.writeSubmessage(3, amount_bytes);
+
+    // Field 4: tolerance (skip)
+    // Field 5: metadata (skip)
+
+    const location_bytes = try encodeLocation(allocator, balance.location);
+    defer allocator.free(location_bytes);
+    try encoder.writeSubmessage(6, location_bytes);
+
+    return encoder.toOwnedSlice();
+}
+
+/// Encode an Open message
+pub fn encodeOpen(allocator: std.mem.Allocator, open: proto.Open) ![]u8 {
+    var encoder = Encoder.init(allocator);
+    defer encoder.deinit();
+
+    const date_bytes = try encodeDate(allocator, open.date);
+    defer allocator.free(date_bytes);
+    try encoder.writeSubmessage(1, date_bytes);
+
+    try encoder.writeString(2, open.account);
+
+    for (open.currencies) |currency| {
+        try encoder.writeString(3, currency);
+    }
+
+    // Field 4: booking_method (skip)
+    // Field 5: metadata (skip)
+
+    const location_bytes = try encodeLocation(allocator, open.location);
+    defer allocator.free(location_bytes);
+    try encoder.writeSubmessage(6, location_bytes);
+
+    return encoder.toOwnedSlice();
+}
+
+/// Encode a Close message
+pub fn encodeClose(allocator: std.mem.Allocator, close: proto.Close) ![]u8 {
+    var encoder = Encoder.init(allocator);
+    defer encoder.deinit();
+
+    const date_bytes = try encodeDate(allocator, close.date);
+    defer allocator.free(date_bytes);
+    try encoder.writeSubmessage(1, date_bytes);
+
+    try encoder.writeString(2, close.account);
+
+    // Field 3: metadata (skip)
+
+    const location_bytes = try encodeLocation(allocator, close.location);
+    defer allocator.free(location_bytes);
+    try encoder.writeSubmessage(4, location_bytes);
+
+    return encoder.toOwnedSlice();
+}
+
+/// Encode a Pad message
+pub fn encodePad(allocator: std.mem.Allocator, pad: proto.Pad) ![]u8 {
+    var encoder = Encoder.init(allocator);
+    defer encoder.deinit();
+
+    const date_bytes = try encodeDate(allocator, pad.date);
+    defer allocator.free(date_bytes);
+    try encoder.writeSubmessage(1, date_bytes);
+
+    try encoder.writeString(2, pad.account);
+    try encoder.writeString(3, pad.source_account);
+
+    // Field 4: metadata (skip)
+
+    const location_bytes = try encodeLocation(allocator, pad.location);
+    defer allocator.free(location_bytes);
+    try encoder.writeSubmessage(5, location_bytes);
+
+    return encoder.toOwnedSlice();
+}
+
+/// Encode a Directive message (oneof wrapper)
+pub fn encodeDirective(allocator: std.mem.Allocator, directive: proto.Directive) ![]u8 {
+    var encoder = Encoder.init(allocator);
+    defer encoder.deinit();
+
+    switch (directive.directive_type) {
+        .transaction => |txn| {
+            const txn_bytes = try encodeTransaction(allocator, txn);
+            defer allocator.free(txn_bytes);
+            try encoder.writeSubmessage(1, txn_bytes);
+        },
+        .balance => |balance| {
+            const balance_bytes = try encodeBalance(allocator, balance);
+            defer allocator.free(balance_bytes);
+            try encoder.writeSubmessage(2, balance_bytes);
+        },
+        .open => |open| {
+            const open_bytes = try encodeOpen(allocator, open);
+            defer allocator.free(open_bytes);
+            try encoder.writeSubmessage(3, open_bytes);
+        },
+        .close => |close| {
+            const close_bytes = try encodeClose(allocator, close);
+            defer allocator.free(close_bytes);
+            try encoder.writeSubmessage(4, close_bytes);
+        },
+        .pad => |pad| {
+            const pad_bytes = try encodePad(allocator, pad);
+            defer allocator.free(pad_bytes);
+            // Pad is field 6 (field 5 is commodity)
+            try encoder.writeSubmessage(6, pad_bytes);
+        },
+    }
+
+    return encoder.toOwnedSlice();
+}
 
 /// InitRequest message encoder
 pub fn encodeInitRequest(
@@ -104,16 +357,23 @@ pub fn encodeInitRequest(
     return encoder.toOwnedSlice();
 }
 
-/// ProcessRequest message encoder (simplified - without directives)
+/// ProcessRequest message encoder (with full directive support)
 pub fn encodeProcessRequest(
     allocator: std.mem.Allocator,
+    directives: []const proto.Directive,
     input_file: []const u8,
     options_map: std.StringHashMap([]const u8),
 ) ![]u8 {
     var encoder = Encoder.init(allocator);
     defer encoder.deinit();
 
-    // Field 1: repeated Directive directives = 1; (empty for now)
+    // Field 1: repeated Directive directives = 1;
+    for (directives) |directive| {
+        const directive_bytes = try encodeDirective(allocator, directive);
+        defer allocator.free(directive_bytes);
+        try encoder.writeSubmessage(1, directive_bytes);
+    }
+
     // Field 2: map<string, string> options_map = 2;
     try encoder.writeStringMap(2, options_map);
 
