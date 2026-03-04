@@ -227,3 +227,99 @@ pub fn decodeProcessResponse(data: []const u8) !ProcessResponseInfo {
         .error_count = error_count,
     };
 }
+
+/// Protobuf message decoder
+pub const Decoder = struct {
+    data: []const u8,
+    pos: usize,
+    allocator: std.mem.Allocator,
+
+    pub fn init(allocator: std.mem.Allocator, data: []const u8) Decoder {
+        return Decoder{
+            .data = data,
+            .pos = 0,
+            .allocator = allocator,
+        };
+    }
+
+    /// Read a varint from current position
+    fn readVarint(self: *Decoder) !u64 {
+        var result: u64 = 0;
+        var shift: u6 = 0;
+
+        while (self.pos < self.data.len) {
+            const byte = self.data[self.pos];
+            self.pos += 1;
+
+            result |= @as(u64, byte & 0x7F) << shift;
+            if ((byte & 0x80) == 0) {
+                return result;
+            }
+
+            shift += 7;
+            if (shift >= 64) {
+                return error.VarintTooLong;
+            }
+        }
+
+        return error.UnexpectedEof;
+    }
+
+    /// Read a tag (field number + wire type)
+    fn readTag(self: *Decoder) !?struct { field_number: u32, wire_type: WireType } {
+        if (self.pos >= self.data.len) {
+            return null; // End of message
+        }
+
+        const tag = try self.readVarint();
+        const field_number = @as(u32, @intCast(tag >> 3));
+        const wire_type_int = @as(u3, @intCast(tag & 0x07));
+        const wire_type = @as(WireType, @enumFromInt(wire_type_int));
+
+        return .{ .field_number = field_number, .wire_type = wire_type };
+    }
+
+    /// Read length-delimited bytes
+    fn readBytes(self: *Decoder) ![]const u8 {
+        const len = try self.readVarint();
+        const start = self.pos;
+        const end = start + @as(usize, @intCast(len));
+
+        if (end > self.data.len) {
+            return error.UnexpectedEof;
+        }
+
+        self.pos = end;
+        return self.data[start..end];
+    }
+
+    /// Read a string field (returns owned slice)
+    fn readString(self: *Decoder) ![]u8 {
+        const bytes = try self.readBytes();
+        return try self.allocator.dupe(u8, bytes);
+    }
+
+    /// Skip a field based on wire type
+    fn skipField(self: *Decoder, wire_type: WireType) !void {
+        switch (wire_type) {
+            .varint => {
+                _ = try self.readVarint();
+            },
+            .fixed64 => {
+                if (self.pos + 8 > self.data.len) return error.UnexpectedEof;
+                self.pos += 8;
+            },
+            .length_delimited => {
+                const len = try self.readVarint();
+                const end = self.pos + @as(usize, @intCast(len));
+                if (end > self.data.len) return error.UnexpectedEof;
+                self.pos = end;
+            },
+            .fixed32 => {
+                if (self.pos + 4 > self.data.len) return error.UnexpectedEof;
+                self.pos += 4;
+            },
+            else => return error.UnsupportedWireType,
+        }
+    }
+};
