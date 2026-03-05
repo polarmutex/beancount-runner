@@ -6,6 +6,44 @@ This document describes how to implement plugins for Beancount Runner in any pro
 
 Plugins communicate with the Zig orchestrator via Protocol Buffers over stdin/stdout. Messages are framed using a 4-byte length prefix.
 
+## Stage Types
+
+Each plugin must declare a `stage_type` in `pipeline.toml` to define its role:
+
+### Parsing Stages (`stage_type = "parsing"`)
+
+**Contract**:
+- **Input**: Empty directive list
+- **Output**: Parsed directives from source file
+- **Ordering**: Must be first stage(s) in pipeline
+- **Examples**: Beancount parser, CSV importer, OFX converter
+
+### Transformation Stages (`stage_type = "transformation"`)
+
+**Contract**:
+- **Input**: Directive list from previous stages
+- **Output**: Modified directive list (add/modify/remove directives)
+- **Ordering**: After parsing, before validation
+- **Examples**: auto-balance, price fetching, account renaming
+
+### Validation Stages (`stage_type = "validation"`)
+
+**Contract**:
+- **Input**: Directive list from previous stages
+- **Output**: Same directive list (unchanged) + errors
+- **Ordering**: After transformation, before output
+- **Examples**: balance checker, transaction validator, date ordering
+
+### Output Stages (`stage_type = "output"`)
+
+**Contract**:
+- **Input**: Final directive list
+- **Output**: Same directive list (side effect: write to file/database)
+- **Ordering**: Must be final stage(s) in pipeline
+- **Examples**: JSON writer, SQL exporter, report generator
+
+**Stage Ordering**: The orchestrator enforces strict ordering (parsing → transformation → validation → output) and fails at startup if violated.
+
 ## Protocol Basics
 
 ### Message Framing
@@ -111,6 +149,56 @@ fn write_message<T: Message>(msg: &T) -> io::Result<()> {
     io::stdout().write_all(&data)?;
     io::stdout().flush()
 }
+```
+
+## Configuration Examples
+
+### Parsing Stage
+
+```toml
+[[pipeline.stages]]
+name = "parser"
+type = "external"
+stage_type = "parsing"
+executable = "./plugins/parser-lima/target/release/parser-lima"
+language = "rust"
+description = "Parse beancount file using lima parser"
+```
+
+### Transformation Stage
+
+```toml
+[[pipeline.stages]]
+name = "auto-balance"
+type = "external"
+stage_type = "transformation"
+executable = "python"
+args = ["./plugins/auto-balance/auto_balance.py"]
+language = "python"
+description = "Automatically generate padding entries for balance assertions"
+```
+
+### Validation Stage
+
+```toml
+[[pipeline.stages]]
+name = "validator"
+type = "builtin"
+stage_type = "validation"
+function = "validate_all"
+description = "Validate transactions balance, account usage, and date ordering"
+```
+
+### Output Stage
+
+```toml
+[[pipeline.stages]]
+name = "json-writer"
+type = "external"
+stage_type = "output"
+executable = "./plugins/json-writer/json-writer"
+language = "zig"
+description = "Write directives to JSON file"
 ```
 
 ## Best Practices
