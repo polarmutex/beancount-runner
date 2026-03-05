@@ -1,0 +1,2 @@
+beancount>=2.3.6
+protobuf>=4.21.0
