@@ -14,6 +14,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "generated" / "python"))
 
 from proto import messages_pb2, common_pb2, directives_pb2
+import beancount.loader
+from beancount.parser import booking
+from beancount.core import data
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
@@ -44,6 +47,28 @@ def write_message(msg):
     sys.stdout.buffer.flush()
 
 
+def parse_and_book(input_file):
+    """Parse and book a beancount file.
+
+    Returns:
+        tuple: (entries, errors, options) where entries are booked
+    """
+    logger.info(f"Parsing file: {input_file}")
+
+    # PARSING: Load beancount file
+    entries, parse_errors, options_map = beancount.loader.load_file(input_file)
+    logger.info(f"Parsed {len(entries)} entries with {len(parse_errors)} errors")
+
+    # BOOKING: Apply beancount's booking logic
+    logger.info("Starting booking phase")
+    booked_entries, booking_errors = booking.book(entries, options_map)
+    logger.info(f"Booked {len(booked_entries)} entries with {len(booking_errors)} booking errors")
+
+    all_errors = list(parse_errors) + list(booking_errors)
+
+    return booked_entries, all_errors, options_map
+
+
 def handle_init():
     """Handle InitRequest."""
     init_req = read_message(messages_pb2.InitRequest)
@@ -65,7 +90,11 @@ def handle_process(input_file):
     req = read_message(messages_pb2.ProcessRequest)
     logger.info(f"Received ProcessRequest with {len(req.directives)} directives")
 
-    # TODO: Implement parsing and booking
+    # Parse and book the beancount file
+    entries, errors, options_map = parse_and_book(input_file)
+
+    # TODO: Convert entries to protobuf directives
+    # TODO: Convert errors to protobuf errors
     # For now, return empty response
     resp = messages_pb2.ProcessResponse()
     write_message(resp)
