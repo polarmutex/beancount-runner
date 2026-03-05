@@ -17,6 +17,7 @@ from proto import messages_pb2, common_pb2, directives_pb2
 import beancount.loader
 from beancount.parser import booking
 from beancount.core import data
+import proto_conversion
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
@@ -93,12 +94,20 @@ def handle_process(input_file):
     # Parse and book the beancount file
     entries, errors, options_map = parse_and_book(input_file)
 
-    # TODO: Convert entries to protobuf directives
-    # TODO: Convert errors to protobuf errors
-    # For now, return empty response
+    # Convert to protobuf
+    pb_directives = [proto_conversion.entry_to_directive(entry) for entry in entries]
+    pb_errors = [proto_conversion.error_to_protobuf(error) for error in errors]
+    pb_options = proto_conversion.options_map_to_dict(options_map)
+
+    # Build response
     resp = messages_pb2.ProcessResponse()
+    resp.directives.extend(pb_directives)
+    resp.errors.extend(pb_errors)
+    for key, value in pb_options.items():
+        resp.updated_options[key] = value
+
     write_message(resp)
-    logger.info("Sent ProcessResponse")
+    logger.info(f"Sent ProcessResponse with {len(pb_directives)} directives, {len(pb_errors)} errors")
 
 
 def handle_shutdown():
