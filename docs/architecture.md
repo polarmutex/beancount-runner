@@ -41,13 +41,43 @@ Following Beancount's design, the pipeline is stateless:
 
 ## Core Components
 
+### Stage Types
+
+The pipeline supports four distinct stage types that execute in strict order:
+
+1. **Parsing** (`parsing`): Convert input files to directive streams
+   - Must be first stage(s) in pipeline
+   - Receive empty directive list, return parsed directives
+   - Examples: Beancount parser, CSV importer, OFX converter
+
+2. **Transformation** (`transformation`): Modify directive streams
+   - Execute after parsing, before validation
+   - May add, modify, or remove directives
+   - Examples: auto-balance, price fetching, account renaming
+
+3. **Validation** (`validation`): Check correctness without modification
+   - Execute after transformation
+   - Return errors but preserve directive list unchanged
+   - Examples: balance checker, account validator, date ordering
+
+4. **Output** (`output`): Write results to files or databases
+   - Must be final stage(s) in pipeline
+   - Examples: JSON writer, SQL exporter, report generator
+
+**Ordering Rules**:
+- Stages execute in declared order within `pipeline.toml`
+- Stage types must follow the sequence: parsing → transformation → validation → output
+- Multiple stages of the same type are allowed (e.g., multiple transformations)
+- The orchestrator validates this ordering at startup and fails fast on violations
+
 ### Zig Orchestrator
 
 The orchestrator coordinates the pipeline:
 
 1. Load Configuration (pipeline.toml)
-2. Initialize Empty Directive List
-3. For Each Stage:
+2. Validate Stage Type Ordering
+3. Initialize Empty Directive List
+4. For Each Stage:
    - Spawn Plugin Subprocess
    - Send InitRequest
    - Send ProcessRequest
@@ -55,7 +85,7 @@ The orchestrator coordinates the pipeline:
    - Update Directive List
    - Accumulate Errors
    - Send ShutdownRequest
-4. Return Final Results
+5. Return Final Results
 
 ### Validator
 
