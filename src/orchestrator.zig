@@ -18,6 +18,9 @@ pub const Orchestrator = struct {
         io: std.Io,
         verbose: bool,
     ) !Orchestrator {
+        // Validate pipeline stages
+        try config.validatePipelineStages(pipeline_config.stages);
+
         const plugin_manager = try PluginManager.init(allocator);
 
         return Orchestrator{
