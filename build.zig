@@ -50,7 +50,19 @@ pub fn build(b: *std.Build) void {
     });
     const run_deserial_test = b.addRunArtifact(deserialization_tests);
 
+    // Integration tests
+    const integration_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/integration_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    const run_integration_test = b.addRunArtifact(integration_tests);
+
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_test.step);
     test_step.dependOn(&run_deserial_test.step);
+    test_step.dependOn(&run_integration_test.step);
 }

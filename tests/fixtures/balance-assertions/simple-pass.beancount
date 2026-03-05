@@ -1,0 +1,11 @@
+; Simple passing balance assertion test
+; Opening account and transaction should result in correct balance
+
+2024-01-01 open Assets:Checking USD
+2024-01-01 open Equity:Opening
+
+2024-01-01 * "Opening balance"
+  Assets:Checking    1000.00 USD
+  Equity:Opening    -1000.00 USD
+
+2024-01-02 balance Assets:Checking 1000.00 USD

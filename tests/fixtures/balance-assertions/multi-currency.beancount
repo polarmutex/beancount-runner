@@ -1,0 +1,16 @@
+; Multi-currency balance assertion test
+; Account holds both USD and EUR
+
+2024-01-01 open Assets:Cash USD,EUR
+2024-01-01 open Equity:Opening USD,EUR
+
+2024-01-02 * "Opening balance USD"
+  Assets:Cash    1000.00 USD
+  Equity:Opening    -1000.00 USD
+
+2024-01-03 * "Opening balance EUR"
+  Assets:Cash    500.00 EUR
+  Equity:Opening    -500.00 EUR
+
+2024-01-10 balance Assets:Cash 1000.00 USD
+2024-01-10 balance Assets:Cash 500.00 EUR

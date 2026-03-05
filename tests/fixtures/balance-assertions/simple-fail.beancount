@@ -1,0 +1,15 @@
+; Simple failing balance assertion test
+; Balance assertion should detect incorrect balance
+
+2024-01-01 open Assets:Checking USD
+2024-01-01 open Expenses:Food USD
+
+2024-01-01 * "Opening balance"
+  Assets:Checking    1000.00 USD
+  Expenses:Food      -1000.00 USD
+
+2024-01-15 * "Grocery shopping"
+  Assets:Checking     -50.00 USD
+  Expenses:Food        50.00 USD
+
+2024-01-31 balance Assets:Checking 1000.00 USD

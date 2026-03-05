@@ -37,7 +37,7 @@ pub fn main(init: std.process.Init) !void {
     defer result.deinit(allocator);
 
     // Output results
-    try writeOutput(allocator, init.io, result, pipeline_config.output_format, pipeline_config.output_path);
+    try writeOutput(allocator, init.io, result, pipeline_config.output_format, pipeline_config.output_path, input_file);
 
     // Print summary
     if (cli_opts.verbose) {
@@ -144,13 +144,12 @@ fn writeOutput(
     result: anytype,
     format: []const u8,
     output_path: []const u8,
+    input_file: []const u8,
 ) !void {
     if (std.mem.eql(u8, format, "json")) {
         try output.writeJson(allocator, io, result.directives, result.errors, output_path);
     } else if (std.mem.eql(u8, format, "text")) {
-        // Text format not implemented yet
-        std.debug.print("Warning: Text output format not implemented, defaulting to JSON\n", .{});
-        try output.writeJson(allocator, io, result.directives, result.errors, output_path);
+        try output.writeText(allocator, io, result.directives, result.errors, input_file, output_path);
     } else if (std.mem.eql(u8, format, "protobuf")) {
         // Protobuf format not implemented yet
         std.debug.print("Warning: Protobuf output format not implemented, defaulting to JSON\n", .{});

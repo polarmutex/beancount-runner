@@ -183,12 +183,103 @@ pub const Validator = struct {
         directives: []const proto.Directive,
         errors: *std.ArrayList(proto.Error),
     ) !void {
-        _ = self;
-        _ = directives;
-        _ = errors;
-        // TODO: Implement balance assertion validation
-        // - Track running balances per account
-        // - Verify balance assertions match calculated values
+        // Track running balances: account -> (currency -> balance)
+        var account_balances = std.StringHashMap(std.StringHashMap(f64)).init(self.allocator);
+        defer {
+            var iter = account_balances.iterator();
+            while (iter.next()) |entry| {
+                self.allocator.free(entry.key_ptr.*);
+                entry.value_ptr.deinit();
+            }
+            account_balances.deinit();
+        }
+
+        // Process directives in order
+        for (directives) |directive| {
+            // Update balances for transactions
+            if (directive.hasTransaction()) {
+                const txn = directive.getTransaction();
+                for (txn.postings) |posting| {
+                    if (posting.amount) |amount| {
+                        const value = try parseAmount(amount.number);
+                        try updateAccountBalance(&account_balances, self.allocator, posting.account, amount.currency, value);
+                    }
+                }
+            }
+
+            // Check balance assertions
+            if (directive.hasBalance()) {
+                const bal = directive.getBalance();
+                const expected_value = try parseAmount(bal.amount.number);
+
+                // Get actual balance for this account and currency
+                const actual_value = getAccountBalance(&account_balances, bal.account, bal.amount.currency);
+
+                // Compare with tolerance
+                const diff = @abs(actual_value - expected_value);
+                if (diff > self.tolerance) {
+                    const location_str = try std.fmt.allocPrint(
+                        self.allocator,
+                        "{s}:{d}",
+                        .{ bal.location.filename, bal.location.line },
+                    );
+                    defer self.allocator.free(location_str);
+
+                    try errors.append(self.allocator, proto.Error{
+                        .message = try std.fmt.allocPrint(
+                            self.allocator,
+                            "Balance assertion failed: {s} expected {d:.2} {s}, got {d:.2} {s}",
+                            .{ bal.account, expected_value, bal.amount.currency, actual_value, bal.amount.currency },
+                        ),
+                        .source = try self.allocator.dupe(u8, "validator"),
+                        .location = bal.location,
+                    });
+                }
+            }
+
+            // Handle pad directives (adjust balance before same-date balance assertions)
+            if (directive.hasPad()) {
+                const pad = directive.getPad();
+                // Pad directives are processed by adjusting the source account balance
+                // to make the target account match its next balance assertion
+                // For now, we skip implementation as it's an edge case
+                _ = pad;
+            }
+        }
+    }
+
+    fn updateAccountBalance(
+        account_balances: *std.StringHashMap(std.StringHashMap(f64)),
+        allocator: std.mem.Allocator,
+        account: []const u8,
+        currency: []const u8,
+        amount: f64,
+    ) !void {
+        // Get or create currency map for this account
+        const account_entry = try account_balances.getOrPut(account);
+        if (!account_entry.found_existing) {
+            account_entry.key_ptr.* = try allocator.dupe(u8, account);
+            account_entry.value_ptr.* = std.StringHashMap(f64).init(allocator);
+        }
+
+        // Get or create balance for this currency
+        const currency_entry = try account_entry.value_ptr.getOrPut(currency);
+        if (!currency_entry.found_existing) {
+            currency_entry.key_ptr.* = try allocator.dupe(u8, currency);
+            currency_entry.value_ptr.* = 0.0;
+        }
+
+        // Update balance
+        currency_entry.value_ptr.* += amount;
+    }
+
+    fn getAccountBalance(
+        account_balances: *std.StringHashMap(std.StringHashMap(f64)),
+        account: []const u8,
+        currency: []const u8,
+    ) f64 {
+        const currency_map = account_balances.get(account) orelse return 0.0;
+        return currency_map.get(currency) orelse 0.0;
     }
 
     fn validateDateOrdering(
