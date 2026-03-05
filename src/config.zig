@@ -30,6 +30,7 @@ pub const PipelineConfig = struct {
 pub const StageConfig = struct {
     name: []const u8,
     stage_type: StageType,
+    pipeline_stage_type: ?PipelineStageType, // Optional for backward compatibility
     executable: ?[]const u8,
     args: [][]const u8,
     language: ?[]const u8,
@@ -95,6 +96,25 @@ test "PipelineStageType.fromString invalid type" {
     try testing.expectError(error.InvalidPipelineStageType, PipelineStageType.fromString(""));
 }
 
+test "StageConfig with pipeline_stage_type" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var stage = StageConfig{
+        .name = try allocator.dupe(u8, "parser"),
+        .stage_type = .external,
+        .pipeline_stage_type = .parsing, // Optional, so we can set it
+        .executable = try allocator.dupe(u8, "./parser"),
+        .args = try allocator.alloc([]const u8, 0),
+        .language = null,
+        .description = null,
+        .function_name = null,
+    };
+    defer stage.deinit(allocator);
+
+    try testing.expectEqual(PipelineStageType.parsing, stage.pipeline_stage_type.?);
+}
+
 pub fn loadConfig(allocator: std.mem.Allocator, io: *const std.Io, path: []const u8) !PipelineConfig {
     // Read config file using Zig 0.16 Io interface
     const cwd_dir = std.Io.Dir.cwd();
@@ -155,6 +175,7 @@ fn parseToml(allocator: std.mem.Allocator, content: []const u8) !PipelineConfig 
                 current_stage = StageConfig{
                     .name = try allocator.dupe(u8, ""),
                     .stage_type = .external,
+                    .pipeline_stage_type = null,
                     .executable = null,
                     .args = empty_args,
                     .language = null,
