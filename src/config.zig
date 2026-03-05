@@ -478,6 +478,15 @@ fn parseToml(allocator: std.mem.Allocator, content: []const u8) !PipelineConfig 
                     } else if (std.mem.eql(u8, key, "function")) {
                         if (stage.function_name) |func| allocator.free(func);
                         stage.function_name = try allocator.dupe(u8, value);
+                    } else if (std.mem.eql(u8, key, "stage_type")) {
+                        if (stage.pipeline_stage_type) |_| {
+                            // Already set, skip
+                        } else {
+                            stage.pipeline_stage_type = PipelineStageType.fromString(value) catch |err| blk: {
+                                std.log.warn("Invalid stage_type '{s}' for stage '{s}': {any}. Stage type will be inferred.", .{ value, stage.name, err });
+                                break :blk null;
+                            };
+                        }
                     } else if (std.mem.eql(u8, key, "args")) {
                         // Parse args array: ["arg1", "arg2"]
                         var args_list: std.ArrayList([]const u8) = .empty;
@@ -511,5 +520,126 @@ fn parseToml(allocator: std.mem.Allocator, content: []const u8) !PipelineConfig 
     }
 
     config.stages = try stages.toOwnedSlice(allocator);
+
+    // Infer pipeline_stage_type for stages that don't have it
+    for (config.stages, 0..) |*stage, idx| {
+        if (stage.pipeline_stage_type == null) {
+            stage.pipeline_stage_type = inferPipelineStageType(stage, idx, config.stages.len);
+            std.log.warn("stage_type not specified for stage '{s}', inferring '{s}'", .{
+                stage.name,
+                @tagName(stage.pipeline_stage_type.?),
+            });
+        }
+    }
+
     return config;
+}
+
+test "parseToml with stage_type field" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    const toml =
+        \\[pipeline]
+        \\input = "examples/sample.beancount"
+        \\output_format = "json"
+        \\output_path = "output.json"
+        \\
+        \\[[pipeline.stages]]
+        \\name = "parser"
+        \\type = "external"
+        \\stage_type = "parsing"
+        \\executable = "./parser"
+        \\
+        \\[[pipeline.stages]]
+        \\name = "auto-balance"
+        \\type = "external"
+        \\stage_type = "transformation"
+        \\executable = "./auto-balance"
+        \\
+        \\[[pipeline.stages]]
+        \\name = "validator"
+        \\type = "builtin"
+        \\stage_type = "validation"
+        \\function = "validate_all"
+    ;
+
+    var config = try parseToml(allocator, toml);
+    defer config.deinit(allocator);
+
+    try testing.expectEqual(@as(usize, 3), config.stages.len);
+
+    // Verify stage_type was parsed correctly
+    try testing.expectEqual(PipelineStageType.parsing, config.stages[0].pipeline_stage_type.?);
+    try testing.expectEqual(PipelineStageType.transformation, config.stages[1].pipeline_stage_type.?);
+    try testing.expectEqual(PipelineStageType.validation, config.stages[2].pipeline_stage_type.?);
+}
+
+test "parseToml with missing stage_type infers correctly" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    const toml =
+        \\[pipeline]
+        \\input = "examples/sample.beancount"
+        \\output_format = "json"
+        \\output_path = "output.json"
+        \\
+        \\[[pipeline.stages]]
+        \\name = "parser"
+        \\type = "external"
+        \\executable = "./parser"
+        \\
+        \\[[pipeline.stages]]
+        \\name = "auto-balance"
+        \\type = "external"
+        \\executable = "./auto-balance"
+        \\
+        \\[[pipeline.stages]]
+        \\name = "validator"
+        \\type = "builtin"
+        \\function = "validate_all"
+    ;
+
+    var config = try parseToml(allocator, toml);
+    defer config.deinit(allocator);
+
+    try testing.expectEqual(@as(usize, 3), config.stages.len);
+
+    // Verify stage_type was inferred correctly
+    try testing.expectEqual(PipelineStageType.parsing, config.stages[0].pipeline_stage_type.?);
+    try testing.expectEqual(PipelineStageType.transformation, config.stages[1].pipeline_stage_type.?);
+    try testing.expectEqual(PipelineStageType.validation, config.stages[2].pipeline_stage_type.?);
+}
+
+test "parseToml with invalid stage_type falls back to inference" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    const toml =
+        \\[pipeline]
+        \\input = "examples/sample.beancount"
+        \\output_format = "json"
+        \\output_path = "output.json"
+        \\
+        \\[[pipeline.stages]]
+        \\name = "parser"
+        \\type = "external"
+        \\stage_type = "invalid_type"
+        \\executable = "./parser"
+        \\
+        \\[[pipeline.stages]]
+        \\name = "validator"
+        \\type = "builtin"
+        \\function = "validate_all"
+    ;
+
+    var config = try parseToml(allocator, toml);
+    defer config.deinit(allocator);
+
+    try testing.expectEqual(@as(usize, 2), config.stages.len);
+
+    // Verify stage_type was inferred after invalid parse
+    try testing.expectEqual(PipelineStageType.parsing, config.stages[0].pipeline_stage_type.?);
+    try testing.expectEqual(PipelineStageType.validation, config.stages[1].pipeline_stage_type.?);
 }
