@@ -1,0 +1,38 @@
+# Example: Rust Parser (no booking)
+
+[pipeline]
+input = "../sample.beancount"
+output_format = "json"
+output_path = "output.json"
+verbose = true
+
+# Use Rust parser for parsing only
+[[pipeline.stages]]
+name = "parser"
+type = "external"
+stage_type = "parsing"
+executable = "../../plugins/parser-lima/target/release/parser-lima"
+language = "rust"
+description = "Parse beancount file using lima parser"
+
+# Add transformation stages
+[[pipeline.stages]]
+name = "auto-balance"
+type = "external"
+stage_type = "transformation"
+executable = "python"
+args = ["../../plugins/auto-balance/auto_balance.py"]
+language = "python"
+description = "Generate padding entries"
+
+# Add validation
+[[pipeline.stages]]
+name = "validator"
+type = "builtin"
+stage_type = "validation"
+function = "validate_all"
+description = "Validate directives"
+
+[options]
+operating_currency = "USD"
+tolerance_default = "0.005"

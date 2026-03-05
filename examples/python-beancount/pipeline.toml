@@ -1,0 +1,36 @@
+# Example: Python Beancount Parser + Booking
+
+[pipeline]
+input = "../sample.beancount"
+output_format = "json"
+output_path = "output.json"
+verbose = true
+
+# Use Python beancount for parsing AND booking
+[[pipeline.stages]]
+name = "python-beancount"
+type = "external"
+stage_type = "parsing+booking"
+executable = "python"
+args = ["../../plugins/python-beancount/beancount_plugin.py"]
+language = "python"
+description = "Parse and book using Python beancount library"
+
+# Optional: Add custom transformations after booking
+# [[pipeline.stages]]
+# name = "categorizer"
+# type = "external"
+# stage_type = "transformation"
+# executable = "./my-categorizer"
+
+# Optional: Add validation
+[[pipeline.stages]]
+name = "validator"
+type = "builtin"
+stage_type = "validation"
+function = "validate_all"
+description = "Validate booked directives"
+
+[options]
+operating_currency = "USD"
+tolerance_default = "0.005"
