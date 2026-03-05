@@ -79,6 +79,82 @@ pub const PipelineStageType = enum {
     }
 };
 
+fn inferPipelineStageType(stage: *const StageConfig, position: usize, total: usize) PipelineStageType {
+    // First stage → parsing
+    if (position == 0) return .parsing;
+
+    // Last stage named "validator" or "validate" → validation
+    if (position == total - 1 and
+        (std.mem.eql(u8, stage.name, "validator") or
+         std.mem.eql(u8, stage.name, "validate")))
+    {
+        return .validation;
+    }
+
+    // Everything else → transformation
+    return .transformation;
+}
+
+test "inferPipelineStageType first stage is parsing" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var stage = StageConfig{
+        .name = try allocator.dupe(u8, "parser"),
+        .stage_type = .external,
+        .pipeline_stage_type = null,
+        .executable = null,
+        .args = try allocator.alloc([]const u8, 0),
+        .language = null,
+        .description = null,
+        .function_name = null,
+    };
+    defer stage.deinit(allocator);
+
+    const inferred = inferPipelineStageType(&stage, 0, 3);
+    try testing.expectEqual(PipelineStageType.parsing, inferred);
+}
+
+test "inferPipelineStageType last stage named validator is validation" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var stage = StageConfig{
+        .name = try allocator.dupe(u8, "validator"),
+        .stage_type = .builtin,
+        .pipeline_stage_type = null,
+        .executable = null,
+        .args = try allocator.alloc([]const u8, 0),
+        .language = null,
+        .description = null,
+        .function_name = try allocator.dupe(u8, "validate_all"),
+    };
+    defer stage.deinit(allocator);
+
+    const inferred = inferPipelineStageType(&stage, 2, 3);
+    try testing.expectEqual(PipelineStageType.validation, inferred);
+}
+
+test "inferPipelineStageType middle stage is transformation" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var stage = StageConfig{
+        .name = try allocator.dupe(u8, "auto-balance"),
+        .stage_type = .external,
+        .pipeline_stage_type = null,
+        .executable = null,
+        .args = try allocator.alloc([]const u8, 0),
+        .language = null,
+        .description = null,
+        .function_name = null,
+    };
+    defer stage.deinit(allocator);
+
+    const inferred = inferPipelineStageType(&stage, 1, 3);
+    try testing.expectEqual(PipelineStageType.transformation, inferred);
+}
+
 test "PipelineStageType.fromString valid types" {
     const testing = std.testing;
 
