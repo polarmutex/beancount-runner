@@ -52,6 +52,49 @@ pub const StageType = enum {
     builtin,
 };
 
+pub const PipelineStageType = enum {
+    parsing,
+    booking,
+    transformation,
+    validation,
+    parsing_booking, // Combined stage
+
+    pub fn fromString(s: []const u8) !PipelineStageType {
+        if (std.mem.eql(u8, s, "parsing")) return .parsing;
+        if (std.mem.eql(u8, s, "booking")) return .booking;
+        if (std.mem.eql(u8, s, "transformation")) return .transformation;
+        if (std.mem.eql(u8, s, "validation")) return .validation;
+        if (std.mem.eql(u8, s, "parsing+booking")) return .parsing_booking;
+        return error.InvalidPipelineStageType;
+    }
+
+    pub fn toPhase(self: PipelineStageType) u8 {
+        return switch (self) {
+            .parsing, .parsing_booking => 0,
+            .booking => 1,
+            .transformation => 2,
+            .validation => 3,
+        };
+    }
+};
+
+test "PipelineStageType.fromString valid types" {
+    const testing = std.testing;
+
+    try testing.expectEqual(PipelineStageType.parsing, try PipelineStageType.fromString("parsing"));
+    try testing.expectEqual(PipelineStageType.booking, try PipelineStageType.fromString("booking"));
+    try testing.expectEqual(PipelineStageType.transformation, try PipelineStageType.fromString("transformation"));
+    try testing.expectEqual(PipelineStageType.validation, try PipelineStageType.fromString("validation"));
+    try testing.expectEqual(PipelineStageType.parsing_booking, try PipelineStageType.fromString("parsing+booking"));
+}
+
+test "PipelineStageType.fromString invalid type" {
+    const testing = std.testing;
+
+    try testing.expectError(error.InvalidPipelineStageType, PipelineStageType.fromString("unknown"));
+    try testing.expectError(error.InvalidPipelineStageType, PipelineStageType.fromString(""));
+}
+
 pub fn loadConfig(allocator: std.mem.Allocator, io: *const std.Io, path: []const u8) !PipelineConfig {
     // Read config file using Zig 0.16 Io interface
     const cwd_dir = std.Io.Dir.cwd();
