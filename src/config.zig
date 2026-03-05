@@ -95,6 +95,166 @@ fn inferPipelineStageType(stage: *const StageConfig, position: usize, total: usi
     return .transformation;
 }
 
+pub fn validatePipelineStages(stages: []const StageConfig) !void {
+    if (stages.len == 0) {
+        return error.EmptyPipeline;
+    }
+
+    // Rule 1: At least one parsing stage
+    var has_parsing = false;
+    for (stages) |stage| {
+        if (stage.pipeline_stage_type) |pst| {
+            if (pst == .parsing or pst == .parsing_booking) {
+                has_parsing = true;
+                break;
+            }
+        }
+    }
+    if (!has_parsing) {
+        std.log.err("Pipeline must include at least one parsing stage", .{});
+        return error.NoParsingStageDefined;
+    }
+
+    // Rule 2: Enforce stage ordering
+    var current_phase: u8 = 0; // 0=parsing, 1=booking, 2=transformation, 3=validation
+
+    for (stages) |stage| {
+        if (stage.pipeline_stage_type) |pst| {
+            const phase = pst.toPhase();
+
+            if (phase < current_phase) {
+                std.log.err("Invalid stage order: '{s}' (type={s}) cannot come after phase {d}", .{
+                    stage.name,
+                    @tagName(pst),
+                    current_phase,
+                });
+                return error.InvalidStageOrder;
+            }
+
+            // Allow same phase (multiple transformations)
+            if (phase > current_phase) {
+                current_phase = phase;
+            }
+        }
+    }
+}
+
+test "validatePipelineStages empty pipeline fails" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    const stages = try allocator.alloc(StageConfig, 0);
+    defer allocator.free(stages);
+
+    try testing.expectError(error.EmptyPipeline, validatePipelineStages(stages));
+}
+
+test "validatePipelineStages no parsing stage fails" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var stages = try allocator.alloc(StageConfig, 1);
+    defer {
+        for (stages) |*stage| stage.deinit(allocator);
+        allocator.free(stages);
+    }
+
+    stages[0] = StageConfig{
+        .name = try allocator.dupe(u8, "validator"),
+        .stage_type = .builtin,
+        .pipeline_stage_type = .validation,
+        .executable = null,
+        .args = try allocator.alloc([]const u8, 0),
+        .language = null,
+        .description = null,
+        .function_name = null,
+    };
+
+    try testing.expectError(error.NoParsingStageDefined, validatePipelineStages(stages));
+}
+
+test "validatePipelineStages invalid order fails" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var stages = try allocator.alloc(StageConfig, 2);
+    defer {
+        for (stages) |*stage| stage.deinit(allocator);
+        allocator.free(stages);
+    }
+
+    // Validation before parsing - invalid
+    stages[0] = StageConfig{
+        .name = try allocator.dupe(u8, "validator"),
+        .stage_type = .builtin,
+        .pipeline_stage_type = .validation,
+        .executable = null,
+        .args = try allocator.alloc([]const u8, 0),
+        .language = null,
+        .description = null,
+        .function_name = null,
+    };
+
+    stages[1] = StageConfig{
+        .name = try allocator.dupe(u8, "parser"),
+        .stage_type = .external,
+        .pipeline_stage_type = .parsing,
+        .executable = null,
+        .args = try allocator.alloc([]const u8, 0),
+        .language = null,
+        .description = null,
+        .function_name = null,
+    };
+
+    try testing.expectError(error.InvalidStageOrder, validatePipelineStages(stages));
+}
+
+test "validatePipelineStages valid order succeeds" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var stages = try allocator.alloc(StageConfig, 3);
+    defer {
+        for (stages) |*stage| stage.deinit(allocator);
+        allocator.free(stages);
+    }
+
+    stages[0] = StageConfig{
+        .name = try allocator.dupe(u8, "parser"),
+        .stage_type = .external,
+        .pipeline_stage_type = .parsing,
+        .executable = null,
+        .args = try allocator.alloc([]const u8, 0),
+        .language = null,
+        .description = null,
+        .function_name = null,
+    };
+
+    stages[1] = StageConfig{
+        .name = try allocator.dupe(u8, "auto-balance"),
+        .stage_type = .external,
+        .pipeline_stage_type = .transformation,
+        .executable = null,
+        .args = try allocator.alloc([]const u8, 0),
+        .language = null,
+        .description = null,
+        .function_name = null,
+    };
+
+    stages[2] = StageConfig{
+        .name = try allocator.dupe(u8, "validator"),
+        .stage_type = .builtin,
+        .pipeline_stage_type = .validation,
+        .executable = null,
+        .args = try allocator.alloc([]const u8, 0),
+        .language = null,
+        .description = null,
+        .function_name = null,
+    };
+
+    try validatePipelineStages(stages);
+}
+
 test "inferPipelineStageType first stage is parsing" {
     const testing = std.testing;
     const allocator = testing.allocator;
