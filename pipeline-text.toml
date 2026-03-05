@@ -1,0 +1,28 @@
+# Pipeline configuration with text output format
+
+[pipeline]
+input = "examples/sample.beancount"
+output_format = "text"
+output_path = "output.txt"
+verbose = true
+
+# Stage 1: Parser
+[[pipeline.stages]]
+name = "parser"
+type = "external"
+executable = "./plugins/parser-lima/target/release/parser-lima"
+language = "rust"
+description = "Parse beancount file using lima parser"
+
+# Stage 2: Auto-balance plugin
+[[pipeline.stages]]
+name = "auto-balance"
+type = "external"
+executable = "python"
+args = ["plugins/auto-balance/auto_balance.py"]
+language = "python"
+description = "Automatically generate Pad directives to balance accounts"
+
+[options]
+operating_currency = "USD"
+tolerance_default = "0.005"
