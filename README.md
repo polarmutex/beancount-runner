@@ -101,12 +101,14 @@ output_format = "json"
 [[pipeline.stages]]
 name = "parser"
 type = "external"
+stage_type = "parsing"
 executable = "./plugins/parser-lima/target/release/parser-lima"
 language = "rust"
 
 [[pipeline.stages]]
 name = "auto-balance"
 type = "external"
+stage_type = "transformation"
 executable = "python"
 args = ["./plugins/auto-balance/auto_balance.py"]
 language = "python"
@@ -114,11 +116,37 @@ language = "python"
 [[pipeline.stages]]
 name = "validator"
 type = "builtin"
+stage_type = "validation"
 function = "validate_all"
 
 [options]
 operating_currency = "USD"
 tolerance_default = "0.005"
+```
+
+### Stage Types
+
+Beancount Runner enforces a four-stage architecture:
+
+1. **Parsing** - Text → raw directives
+2. **Booking** - Raw directives → booked directives (interpolation, balance computation)
+3. **Transformation** - Directive modifications (optional, repeatable)
+4. **Validation** - Error checking without modification
+
+The `stage_type` field is required and must follow ordering rules (parsing first, validation last).
+
+### Python Beancount Example
+
+Use Python's official beancount library for parsing and booking:
+
+```toml
+[[pipeline.stages]]
+name = "python-beancount"
+type = "external"
+stage_type = "parsing+booking"
+executable = "python"
+args = ["./plugins/python-beancount/beancount_plugin.py"]
+language = "python"
 ```
 
 ## Plugin Development
