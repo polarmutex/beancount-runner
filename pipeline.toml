@@ -19,6 +19,7 @@ verbose = false
 [[pipeline.stages]]
 name = "parser"
 type = "external"
+stage_type = "parsing"
 executable = "./plugins/parser-lima/target/release/parser-lima"
 language = "rust"
 description = "Parse beancount file using lima parser"
@@ -27,6 +28,7 @@ description = "Parse beancount file using lima parser"
 [[pipeline.stages]]
 name = "auto-balance"
 type = "external"
+stage_type = "transformation"
 executable = "python"
 args = ["./plugins/auto-balance/auto_balance.py"]
 language = "python"
@@ -44,6 +46,7 @@ description = "Automatically generate padding entries for balance assertions"
 [[pipeline.stages]]
 name = "validator"
 type = "builtin"
+stage_type = "validation"
 function = "validate_all"
 description = "Validate transactions balance, account usage, and date ordering"
 
